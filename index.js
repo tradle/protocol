@@ -37,9 +37,8 @@ module.exports = {
   prove: prove,
   prover: prover,
   verify: verify,
-  leaves: function (nodes) {
-    return nodes.sort(byIndexSort)
-  }
+  leaves: getLeaves,
+  indices: getIndices
 }
 
 /**
@@ -107,7 +106,7 @@ function createMerkleTree (opts, cb) {
   // list with flat-tree indices
   const nodes = []
   const msg = opts.message
-  const indexedTree = {}
+  // const indexedTree = {}
   const keys = getKeys(msg)
   keys.forEach(function (key, i) {
     gen.next(key, nodes)
@@ -115,21 +114,17 @@ function createMerkleTree (opts, cb) {
   })
 
   nodes.push.apply(nodes, gen.finalize())
-
-  const leaves = getLeaves(nodes)
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i]
-    const kIdx = i * 2
-    indexedTree[key] = {
-      key: leaves[kIdx],
-      value: leaves[kIdx + 1]
-    }
+  const sorted = new Array(nodes.length)
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    const idx = node.index
+    sorted[idx] = node
   }
 
   const ret = {
-    nodes: nodes,
+    nodes: sorted,
     roots: gen.roots,
-    indexed: indexedTree
+    indices: getIndices(msg, keys)
   }
 
   return maybeAsync(ret, cb)
@@ -147,9 +142,9 @@ function prover (opts) {
       }, opts, true)
 
       const prop = opts.property
-      const propNodes = tree.indexed[prop]
-      if (opts.key) leaves.push(propNodes.key)
-      if (opts.value) leaves.push(propNodes.value)
+      const propNodes = tree.indices[prop]
+      if (opts.key) leaves.push(tree.nodes[propNodes.key])
+      if (opts.value) leaves.push(tree.nodes[propNodes.value])
 
       return builder
     },
@@ -326,4 +321,19 @@ function find (arr, match) {
 
 function getKeys (obj) {
   return Object.keys(obj).sort(alphabetical)
+}
+
+function getIndices (obj, keys) {
+  keys = keys || getKeys(obj)
+  const indices = {}
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const kIdx = i * 4
+    indices[key] = {
+      key: kIdx,
+      value: kIdx + 2
+    }
+  }
+
+  return indices
 }

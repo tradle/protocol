@@ -38,10 +38,12 @@ test('prove, verify', function (t) {
     message: msg
   })
 
+  const indices = protocol.indices(msg)
+
   // prove key 'a', and value under key 'c'
   const proved = [
-    tree.indexed.a.key,
-    tree.indexed.c.value
+    tree.nodes[indices.a.key],
+    tree.nodes[indices.c.value]
   ]
 
   const proof = protocol.prove({

@@ -20,3 +20,33 @@ const b = protocol.receive({
 })
 
 // a.destKey.getPublic(true, 'hex') === b.destKey.getPublic(true, 'hex')
+
+const msg = {
+  a: 1,
+  b: 2,
+  c: 3
+}
+
+const proof = protocol.prover({
+    message: msg
+  })
+  .add({
+    property: 'a',
+    key: true
+  })
+  .add({
+    property: 'c',
+    value: true
+  })
+  .proof()
+
+const treeIndex = protocol.getIndex(msg)
+
+// prove key 'a'
+protocol.verify({ proof: proof, node: treeIndex.a.key }) // true
+
+// prove value 3
+protocol.verify({ proof: proof, node: treeIndex.c.value }) // true
+
+// prove key 'b'
+protocol.verify({ proof: proof, node: treeIndex.b.key }) // false
