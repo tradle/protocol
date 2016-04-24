@@ -7,11 +7,11 @@
     "test": "node test"
   },
   "author": "Mark Vayngrib <mark@tradle.io> (http://github.com/mvayngrib)",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "bn.js": "^4.11.1",
     "elliptic": "^6.2.3",
-    "merkle-proofs": "^1.0.1",
+    "merkle-proofs": "^1.0.2",
     "merkle-tree-stream": "mvayngrib/merkle-tree-stream#finalize",
     "secp256k1": "^3.0.1",
     "typeforce": "^1.6.2",

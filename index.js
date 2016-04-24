@@ -35,6 +35,7 @@ module.exports = {
   send: send,
   receive: receive,
   prove: prove,
+  prover: prover,
   verify: verify,
   leaves: function (nodes) {
     return nodes.sort(byIndexSort)
@@ -107,7 +108,7 @@ function createMerkleTree (opts, cb) {
   const nodes = []
   const msg = opts.message
   const indexedTree = {}
-  const keys = Object.keys(msg).sort(alphabetical)
+  const keys = getKeys(msg)
   keys.forEach(function (key, i) {
     gen.next(key, nodes)
     gen.next(JSON.stringify(msg[key]), nodes)
@@ -134,14 +135,43 @@ function createMerkleTree (opts, cb) {
   return maybeAsync(ret, cb)
 }
 
+function prover (opts) {
+  const tree = createMerkleTree(opts)
+  const leaves = []
+  const builder = {
+    add: function (opts) {
+      typeforce({
+        property: 'String',
+        key: '?Boolean',
+        value: '?Boolean'
+      }, opts, true)
+
+      const prop = opts.property
+      const propNodes = tree.indexed[prop]
+      if (opts.key) leaves.push(propNodes.key)
+      if (opts.value) leaves.push(propNodes.value)
+
+      return builder
+    },
+    proof: function (cb) {
+      return prove({
+        nodes: tree.nodes,
+        leaves: leaves
+      }, cb)
+    }
+  }
+
+  return builder
+}
+
 function prove (opts, cb) {
   // return nodes needed to prove leaves at leafIndices are part of the tree
   typeforce({
-    tree: typeforce.arrayOf(NODE_TYPE),
+    nodes: typeforce.arrayOf(NODE_TYPE),
     leaves: typeforce.arrayOf(DATA_NODE_TYPE)
   }, opts)
 
-  const prover = merkleProofs.proofGenerator(opts.tree)
+  const prover = merkleProofs.proofGenerator(opts.nodes)
   const leaves = opts.leaves
   for (var i = 0; i < leaves.length; i++) {
     prover.add(leaves[i])
@@ -261,7 +291,7 @@ function assert (statement, errMsg) {
  * depending on if callback is passed
  * @param  {anything}   val [description]
  * @param  {?Function}  cb  [description]
- * @return {anything}       val
+ * @return {anything}   val
  */
 function maybeAsync (val, cb) {
   if (cb) {
@@ -284,4 +314,16 @@ function getLeaves (nodes) {
   return nodes.filter(function (n) {
     return n.index % 2 === 0
   })
+}
+
+function find (arr, match) {
+  if (arr.find) return arr.find(match)
+
+  for (let i = 0; i < arr.length; i++) {
+    if (match(arr[i], i)) return arr[i]
+  }
+}
+
+function getKeys (obj) {
+  return Object.keys(obj).sort(alphabetical)
 }

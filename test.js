@@ -27,7 +27,7 @@ test('send, receive', function (t) {
   t.end()
 })
 
-test.only('prove, verify', function (t) {
+test('prove, verify', function (t) {
   const msg = {
     a: 1,
     b: 2,
@@ -38,21 +38,69 @@ test.only('prove, verify', function (t) {
     message: msg
   })
 
-  // prove key 'a', value under key 'c'
+  // prove key 'a', and value under key 'c'
   const proved = [
     tree.indexed.a.key,
     tree.indexed.c.value
   ]
 
   const proof = protocol.prove({
-    tree: tree.nodes,
+    nodes: tree.nodes,
     leaves: proved
   })
 
-  tree.nodes.forEach(function (node) {
-    if (node.index % 2) return // not a leaf
+  const provedIndices = proved.map(function (node) {
+    return node.index
+  })
 
-    const method = proved.indexOf(node) === -1 ? 'notOk' : 'ok'
+  tree.nodes.forEach(function (node) {
+    const i = node.index
+    if (i % 2) return
+
+    const method = provedIndices.indexOf(i) === -1 ? 'notOk' : 'ok'
+    t[method](protocol.verify({
+      proof: proof,
+      node: node
+    }))
+  })
+
+  t.end()
+})
+
+test('prove with builder, verify', function (t) {
+  const msg = {
+    a: 1,
+    b: 2,
+    c: 3
+  }
+
+  // prove key 'a', and value under key 'c'
+  const tree = protocol.tree({
+    message: msg
+  })
+
+  const proof = protocol.prover({
+      message: msg
+    })
+    .add({
+      property: 'a',
+      key: true
+    })
+    .add({
+      property: 'c',
+      value: true
+    })
+    .proof()
+
+  const provedIndices = [
+    0, 10
+  ]
+
+  tree.nodes.forEach(function (node) {
+    const i = node.index
+    if (i % 2) return
+
+    const method = provedIndices.indexOf(i) === -1 ? 'notOk' : 'ok'
     t[method](protocol.verify({
       proof: proof,
       node: node
