@@ -46,7 +46,7 @@ module.exports = {
  * used by the sender of a transaction
  *
  * @param  {Object}   opts
- * @param  {Function} cb(?Error, ?elliptic.KeyPair)
+ * @param  {?Function} cb(?Error, ?elliptic.KeyPair)
  */
 function send (opts, cb) {
   typeforce({
@@ -218,67 +218,6 @@ function alphabetical (a, b) {
 
 function byIndexSort (a, b) {
   return a.index - b.index
-}
-
-// for (var i = 0; i < 1; i++) {
-//   console.log(merkleTree({
-//     a: 1,
-//     b: 2,
-//     c: 3
-//   }))
-// }
-
-// var alice = secp256k1.keyFromPrivate('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex')
-// //secp256k1.genKeyPair()
-// var bob = secp256k1.keyFromPrivate('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex')
-// //secp256k1.genKeyPair()
-// // console.log(alice.getPrivate('hex'))
-// // console.log(bob.getPrivate('hex'))
-// var a = send({
-//   pub: bob.getPublic(),
-//   message: {
-//     a: 1,
-//     b: 2
-//   }
-// })
-
-// var b = receive({
-//   priv: bob.priv,
-//   message: {
-//     a: 1,
-//     b: 2
-//   }
-// })
-
-// console.log(a.getPublic(true, 'hex') === b.getPublic(true, 'hex'))
-
-// const XY_1 = alice.getPublic().add(bob.getPublic())
-// const xy = alice.priv.toRed(N).redAdd(bob.priv.toRed(N)).fromRed()
-// const XY_2 = secp256k1.keyFromPrivate(xy).getPublic()
-// console.log(XY_1.getX())
-// console.log(XY_2.getX())
-// console.log(XY_1.eq(XY_2))
-
-// for (var i = 0; i < 1; i++) {
-//   var stream = merkleStream({
-//     leaf: function (leaf) {
-//       return crypto.createHash('sha256').update(leaf.data).digest()
-//     },
-
-//     parent: function (a, b) {
-//       return crypto.createHash('sha256').update(a.hash).update(b.hash).digest()
-//     }
-//   })
-
-//   stream.write('a')
-//   stream.write('1')
-//   stream.write('b')
-//   stream.write('2')
-//   stream.on('data', console.log)
-// }
-
-function assert (statement, errMsg) {
-  if (!statement) throw new Error(errMsg)
 }
 
 /**

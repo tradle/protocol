@@ -94,15 +94,16 @@ test('prove with builder, verify', function (t) {
     })
     .proof()
 
-  const provedIndices = [
-    0, 10
+  const proved = [
+    tree.indices.a.key,
+    tree.indices.c.value
   ]
 
   tree.nodes.forEach(function (node) {
     const i = node.index
     if (i % 2) return
 
-    const method = provedIndices.indexOf(i) === -1 ? 'notOk' : 'ok'
+    const method = proved.indexOf(i) === -1 ? 'notOk' : 'ok'
     t[method](protocol.verify({
       proof: proof,
       node: node
