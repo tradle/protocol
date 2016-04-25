@@ -55,15 +55,16 @@ function send (opts, cb) {
   }, opts)
 
   const tree = createMerkleTree(opts)
-  const merkleRoot = tree.roots[0]
-  const msgKey = secp256k1.keyFromPrivate(merkleRoot.hash)
+  const merkleRoot = tree.roots[0].hash
+  const msgKey = secp256k1.keyFromPrivate(merkleRoot)
   const pub = importPub(opts.pub, secp256k1)
   const msgKeyPub = msgKey.getPublic()
   const destPub = pub.add(msgKeyPub)
   const ret = {
     msgKey: msgKey,
     destKey: secp256k1.keyFromPublic(destPub),
-    tree: tree
+    tree: tree,
+    root: merkleRoot
   }
 
   return maybeAsync(ret, cb)
@@ -83,13 +84,12 @@ function receive (opts, cb) {
   }, opts)
 
   const tree = createMerkleTree(opts)
-  const merkleRoot = tree.roots[0]
+  const merkleRoot = tree.roots[0].hash
   const priv = importPriv(opts.priv, secp256k1)
-  const msgKey = merkleRoot.hash
-  const destPriv = priv.add(new BN(msgKey)).mod(secp256k1.n)
+  const destPriv = priv.add(new BN(merkleRoot)).mod(secp256k1.n)
   const ret = {
     tree: tree,
-    msgKey: msgKey,
+    msgKey: merkleRoot,
     destKey: secp256k1.keyFromPrivate(destPriv)
   }
 
