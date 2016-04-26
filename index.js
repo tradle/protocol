@@ -12,9 +12,6 @@ const secp256k1 = ec('secp256k1')
 // const secp256k1Native = require('secp256k1')
 // const ed25519 = ec('ed25519')
 const BN = require('bn.js')
-// const G = secp256k1.g
-// const N = BN.red(secp256k1.n)
-// const MAX_LEAVES = 0xffff
 const DATA_NODE_TYPE = typeforce.compile({
   data: typeforce.Buffer,
   hash: typeforce.Buffer,
@@ -27,8 +24,12 @@ const NODE_TYPE = typeforce.compile({
 })
 
 const DEFAULT_GEN_OPTS = {
-  leaf: sha256,
-  parent: concatSha256
+  leaf: function (node) {
+    return sha256(node.data)
+  },
+  parent: function (a, b) {
+    return concatSha256(a.hash, b.hash)
+  },
 }
 
 module.exports = {
@@ -51,24 +52,37 @@ module.exports = {
  */
 function send (opts, cb) {
   typeforce({
-    pub: typeforce.oneOf('String', 'Object'),
-    message: 'Object'
+    pub: typeforce.oneOf(typeforce.String, typeforce.Object),
+    message: typeforce.Object,
+    sign: typeforce.Function
   }, opts)
 
   const tree = createMerkleTree(opts)
   const merkleRoot = tree.roots[0].hash
-  const msgKey = secp256k1.keyFromPrivate(merkleRoot)
-  const pub = importPub(opts.pub, secp256k1)
-  const msgKeyPub = msgKey.getPublic()
-  const destPub = pub.add(msgKeyPub)
-  const ret = {
-    msgKey: msgKey,
-    destKey: secp256k1.keyFromPublic(destPub),
-    tree: tree,
-    root: merkleRoot
-  }
+  opts.sign(merkleRoot, function (err, sig) {
+    if (err) return cb(err)
 
-  return maybeAsync(ret, cb)
+    typeforce(typeforce.Buffer, sig)
+
+    const keyData = getKeyData(merkleRoot, sig)
+    const msgKey = secp256k1.keyFromPrivate(keyData)
+    let pub
+    try {
+      pub = importPub(opts.pub, secp256k1)
+    } catch (err) {
+      return cb(err)
+    }
+
+    const msgKeyPub = msgKey.getPublic()
+    const destPub = pub.add(msgKeyPub)
+    cb(null, {
+      msgKey: msgKey,
+      destKey: secp256k1.keyFromPublic(destPub),
+      tree: tree,
+      root: merkleRoot,
+      sig: sig
+    })
+  })
 }
 
 /**
@@ -80,26 +94,41 @@ function send (opts, cb) {
  */
 function receive (opts, cb) {
   typeforce({
-    priv: typeforce.oneOf('String', 'Object'),
-    message: 'Object'
+    priv: typeforce.oneOf(typeforce.String, typeforce.Object),
+    message: typeforce.Object,
+    sig: typeforce.Buffer,
+    verify: typeforce.Function
   }, opts)
 
   const tree = createMerkleTree(opts)
   const merkleRoot = tree.roots[0].hash
-  const priv = importPriv(opts.priv, secp256k1)
-  const destPriv = priv.add(new BN(merkleRoot)).mod(secp256k1.n)
-  const ret = {
-    tree: tree,
-    msgKey: merkleRoot,
-    destKey: secp256k1.keyFromPrivate(destPriv)
-  }
+  const sig = opts.sig
+  opts.verify(merkleRoot, sig, function (err, verified) {
+    if (err) return cb(err)
+    if (!verified) return cb(new Error('bad signature'))
 
-  return maybeAsync(ret, cb)
+    const keyData = getKeyData(merkleRoot, sig)
+    const msgKey = secp256k1.keyFromPrivate(keyData)
+    let priv
+    try {
+      priv = importPriv(opts.priv, secp256k1)
+    } catch (err) {
+      return cb(err)
+    }
+
+    const destPriv = priv.add(msgKey.priv).mod(secp256k1.n)
+    cb(null, {
+      tree: tree,
+      msgKey: msgKey,
+      destKey: secp256k1.keyFromPrivate(destPriv),
+      root: merkleRoot
+    })
+  })
 }
 
 function createMerkleTree (opts, cb) {
   typeforce({
-    message: 'Object'
+    message: typeforce.Object
   }, opts)
 
   const gen = merkleGenerator(getMerkleOpts(opts))
@@ -137,7 +166,7 @@ function prover (opts) {
   const builder = {
     add: function (opts) {
       typeforce({
-        property: 'String',
+        property: typeforce.String,
         key: '?Boolean',
         value: '?Boolean'
       }, opts, true)
@@ -191,12 +220,12 @@ function verify (opts, cb) {
   return maybeAsync(ret, cb)
 }
 
-function sha256 (leaf) {
-  return crypto.createHash('sha256').update(leaf.data).digest()
+function sha256 (data) {
+  return crypto.createHash('sha256').update(data).digest()
 }
 
 function concatSha256 (a, b) {
-  return crypto.createHash('sha256').update(a.hash).update(b.hash).digest()
+  return crypto.createHash('sha256').update(a).update(b).digest()
 }
 
 function importPriv (key, curve) {
@@ -276,4 +305,20 @@ function getIndices (obj, keys) {
   }
 
   return indices
+}
+
+function omit (obj) {
+  let copy = {}
+  let omitted = Array.prototype.slice.call(arguments, 1)
+  for (let p in obj) {
+    if (omitted.indexOf(p) === -1) {
+      copy[p] = obj[p]
+    }
+  }
+
+  return copy
+}
+
+function getKeyData (merkleRoot, sig) {
+  return sha256(Buffer.concat([merkleRoot, sig], 2))
 }
