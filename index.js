@@ -4,6 +4,7 @@
 const crypto = require('crypto')
 const extend = require('xtend')
 const typeforce = require('typeforce')
+const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
 const ec = require('elliptic').ec
@@ -110,7 +111,7 @@ function createMerkleTree (opts, cb) {
   const keys = getKeys(msg)
   keys.forEach(function (key, i) {
     gen.next(key, nodes)
-    gen.next(JSON.stringify(msg[key]), nodes)
+    gen.next(stringify(msg[key]), nodes)
   })
 
   nodes.push.apply(nodes, gen.finalize())
