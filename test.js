@@ -4,35 +4,46 @@ const test = require('tape')
 const protocol = require('./')
 const ec = require('elliptic').ec
 const secp256k1 = ec('secp256k1')
-const alice = secp256k1.keyFromPrivate('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex')
-const bob = secp256k1.keyFromPrivate('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex')
-const SIG = require('@tradle/constants').SIG
+const constants = require('@tradle/constants')
+const SIG = constants.SIG
+const PREV = constants.PREV_HASH
+const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
+
+const alice = {
+  chain: secp256k1.keyFromPrivate('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex'),
+  sign: secp256k1.keyFromPrivate('1987cf92acb0fa32232631826c3e7386a853bc1b0f8233903f17990c70f09096', 'hex')
+}
+
+const bob = {
+  chain: secp256k1.keyFromPrivate('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex'),
+  sign: secp256k1.keyFromPrivate('27572001fe781aa04794fd2bab787edcda182dddf1e4331d2aef6fb88cb73812', 'hex')
+}
 
 test('send, receive', function (t) {
+  var obj = {
+    a: 1,
+    b: 2
+  }
+
   protocol.send({
-    pub: bob.getPublic(),
-    message: {
-      a: 1,
-      b: 2
-    },
+    pub: bob.sign.getPublic(),
+    object: obj,
+    // signingPubKey: alice.getPublic(false, 'hex'),
     sign: function (data, cb) {
       process.nextTick(function () {
-        cb(null, new Buffer(alice.sign(data).toDER()))
+        cb(null, new Buffer(alice.sign.sign(data).toDER()))
       })
     }
   }, function (err, sendRes) {
     if (err) throw err
 
     protocol.receive({
-      priv: bob.priv,
-      message: {
-        a: 1,
-        b: 2
-      },
-      sig: sendRes.sig,
+      priv: bob.sign.priv,
+      object: obj,
+      header: sendRes.header,
       verify: function (data, sig, cb) {
         process.nextTick(function () {
-          cb(null, alice.verify(data, sig))
+          cb(null, alice.sign.verify(data, sig))
         })
       }
     }, function (err, receiveRes) {
@@ -44,6 +55,120 @@ test('send, receive', function (t) {
   })
 })
 
+test('sequence', function (t) {
+  var v1 = {
+    a: 1,
+    b: 2
+  }
+
+  var v1merkleRoot = protocol.merkleRoot(v1)
+  t.doesNotThrow(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV]: v1merkleRoot
+      },
+      {
+        prevVersion: v1
+      }
+    )
+  })
+
+  t.doesNotThrow(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV_TO_SENDER]: v1merkleRoot
+      },
+      {
+        prevObjectFromSender: v1
+      }
+    )
+  })
+
+  t.doesNotThrow(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV]: v1merkleRoot,
+        [PREV_TO_SENDER]: v1merkleRoot
+      },
+      {
+        prevVersion: v1,
+        prevObjectFromSender: v1
+      }
+    )
+  })
+
+  t.throws(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+      },
+      {
+        prevVersion: v1,
+      }
+    )
+  })
+
+  t.throws(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+      },
+      {
+        prevVersion: v1,
+        prevObjectFromSender: v1
+      }
+    )
+  })
+
+  t.throws(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV]: v1merkleRoot,
+      },
+      {}
+    )
+  })
+
+  t.throws(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV_TO_SENDER]: v1merkleRoot
+      },
+      {}
+    )
+  })
+
+  t.throws(function () {
+    protocol.validateSequence(
+      {
+        a: 2,
+        b: 2,
+        [PREV]: v1merkleRoot,
+        [PREV_TO_SENDER]: v1merkleRoot
+      },
+      {
+        prevVersion: crypto.randomBytes(32),
+        prevObjectFromSender: v1
+      }
+    )
+  })
+
+  t.end()
+})
+
+
 test('prove, verify', function (t) {
   const msg = {
     a: 1,
@@ -51,10 +176,7 @@ test('prove, verify', function (t) {
     c: 3
   }
 
-  const tree = protocol.tree({
-    message: msg
-  })
-
+  const tree = protocol.tree(msg)
   const indices = protocol.indices(msg)
 
   // prove key 'a', and value under key 'c'
@@ -94,13 +216,8 @@ test('prove with builder, verify', function (t) {
   }
 
   // prove key 'a', and value under key 'c'
-  const tree = protocol.tree({
-    message: msg
-  })
-
-  const proof = protocol.prover({
-      message: msg
-    })
+  const tree = protocol.tree(msg)
+  const proof = protocol.prover(msg)
     .add({
       property: 'a',
       key: true
@@ -129,20 +246,6 @@ test('prove with builder, verify', function (t) {
 
   t.end()
 })
-
-function bsSign (data, cb) {
-  // BS sig function
-  process.nextTick(function () {
-    cb(null, [].reverse.call(data))
-  })
-}
-
-function bsVerify (data, sig, cb) {
-  // BS verify function
-  process.nextTick(function () {
-    cb(null, [].reverse.call(data).equals(sig))
-  })
-}
 
 function sha256 (data) {
   return crypto.createHash('sha256').update(data).digest()

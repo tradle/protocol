@@ -13,7 +13,7 @@
     "bn.js": "^4.11.1",
     "elliptic": "^6.2.3",
     "json-stable-stringify": "^1.0.1",
-    "merkle-proofs": "^1.0.2",
+    "merkle-proofs": "^1.0.3",
     "merkle-tree-stream": "mvayngrib/merkle-tree-stream#finalize",
     "secp256k1": "^3.0.1",
     "typeforce": "^1.6.2",

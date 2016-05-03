@@ -12,6 +12,13 @@ const secp256k1 = ec('secp256k1')
 // const secp256k1Native = require('secp256k1')
 // const ed25519 = ec('ed25519')
 const BN = require('bn.js')
+const constants = require('@tradle/constants')
+const SALT = constants.NONCE
+const SIG = constants.SIG
+const PREV = constants.PREV_HASH
+const ORIG = constants.ROOT_HASH
+const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
+const PUBKEY = constants.PUBKEY || 'k'
 const DATA_NODE_TYPE = typeforce.compile({
   data: typeforce.Buffer,
   hash: typeforce.Buffer,
@@ -23,7 +30,19 @@ const NODE_TYPE = typeforce.compile({
   index: typeforce.Number
 })
 
-const DEFAULT_GEN_OPTS = {
+const MERKLE_ROOT_OR_OBJ = typeforce.oneOf(typeforce.Object, typeforce.Buffer)
+
+// const OBJECT_TYPE = typeforce.compile({
+//   header: typeforce.Object,
+//   body: typeforce.Object
+// })
+
+const HEADER_TYPE = typeforce.compile({
+  [SIG]: typeforce.Buffer,
+  [SALT]: typeforce.Buffer
+})
+
+const DEFAULT_MERKLE_OPTS = {
   leaf: function (node) {
     return sha256(node.data)
   },
@@ -34,13 +53,40 @@ const DEFAULT_GEN_OPTS = {
 
 module.exports = {
   tree: createMerkleTree,
+  merkleRoot: computeMerkleRoot,
+  object: createObject,
   send: send,
   receive: receive,
+  validateSequence: validateSequence,
   prove: prove,
   prover: prover,
   verify: verify,
   leaves: getLeaves,
   indices: getIndices
+}
+
+function createObject (obj, opts) {
+  typeforce({
+    prevVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
+    origVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
+    prevObjectToSender: typeforce.maybe(typeforce.Object)
+  }, opts)
+
+  // not too safe
+  obj = extend(obj)
+  if (opts.prevVersion) {
+    obj[PREV] = toMerkleRoot(opts.prevVersion, opts)
+  }
+
+  if (opts.origVersion) {
+    obj[ORIG] = toMerkleRoot(opts.origVersion, opts)
+  }
+
+  if (opts.prevObjectToSender) {
+    obj[PREV_TO_SENDER] = toMerkleRoot(opts.prevObjectToSender, opts)
+  }
+
+  return obj
 }
 
 /**
@@ -53,18 +99,21 @@ module.exports = {
 function send (opts, cb) {
   typeforce({
     pub: typeforce.oneOf(typeforce.String, typeforce.Object),
-    message: typeforce.Object,
-    sign: typeforce.Function
+    object: typeforce.Object,
+    sign: typeforce.Function,
+    signingKeyPub: typeforce.maybe(typeforce.String)
   }, opts)
 
-  const tree = createMerkleTree(opts)
-  const merkleRoot = tree.roots[0].hash
-  opts.sign(merkleRoot, function (err, sig) {
+  const tree = createMerkleTree(opts.object, getMerkleOpts(opts))
+  const merkleRoot = getMerkleRoot(tree)
+  const salt = genSalt()
+  const sigData = getSigData(merkleRoot, salt)
+  opts.sign(sigData, function (err, sig) {
     if (err) return cb(err)
 
     typeforce(typeforce.Buffer, sig)
 
-    const keyData = getKeyData(merkleRoot, sig)
+    const keyData = getKeyData(sigData, sig)
     const msgKey = secp256k1.keyFromPrivate(keyData)
     let pub
     try {
@@ -80,10 +129,21 @@ function send (opts, cb) {
       destKey: secp256k1.keyFromPublic(destPub),
       tree: tree,
       root: merkleRoot,
-      sig: sig
+      header: {
+        [SALT]: salt,
+        [SIG]: sig,
+        [PUBKEY]: opts.signingKeyPub
+      },
+      object: opts.object
     })
   })
 }
+
+// function serialize (obj) {
+//   obj.header = {
+//     []
+//   }
+// }
 
 /**
  * Calculate destination public key
@@ -95,19 +155,34 @@ function send (opts, cb) {
 function receive (opts, cb) {
   typeforce({
     priv: typeforce.oneOf(typeforce.String, typeforce.Object),
-    message: typeforce.Object,
-    sig: typeforce.Buffer,
-    verify: typeforce.Function
+    header: typeforce.Object,
+    object: typeforce.Object,
+    verify: typeforce.Function,
+    prevVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
+    prevObjectFromSender: typeforce.maybe(MERKLE_ROOT_OR_OBJ)
   }, opts)
 
-  const tree = createMerkleTree(opts)
-  const merkleRoot = tree.roots[0].hash
-  const sig = opts.sig
-  opts.verify(merkleRoot, sig, function (err, verified) {
+  typeforce(HEADER_TYPE, opts.header)
+
+  const object = opts.object
+  const header = opts.header
+  try {
+    validateSequence(object, opts)
+  } catch (err) {
+    return process.nextTick(function () {
+      cb(err)
+    })
+  }
+
+  const tree = createMerkleTree(object, getMerkleOpts(opts))
+  const merkleRoot = getMerkleRoot(tree)
+  const sig = header[SIG]
+  const sigData = getSigData(merkleRoot, header[SALT])
+  opts.verify(sigData, sig, function (err, verified) {
     if (err) return cb(err)
     if (!verified) return cb(new Error('bad signature'))
 
-    const keyData = getKeyData(merkleRoot, sig)
+    const keyData = getKeyData(sigData, sig)
     const msgKey = secp256k1.keyFromPrivate(keyData)
     let priv
     try {
@@ -126,21 +201,53 @@ function receive (opts, cb) {
   })
 }
 
-function createMerkleTree (opts, cb) {
-  typeforce({
-    message: typeforce.Object
-  }, opts)
+function validateSequence (object, opts) {
+  if (object[PREV] || opts.prevVersion) {
+    if (object[PREV] && !opts.prevVersion) {
+      throw new Error('expected "prevVersion"')
+    }
+
+    if (!object[PREV] && opts.prevVersion) {
+      throw new Error(`object missing property "${PREV}"`)
+    }
+
+    const expectedPrev = toMerkleRoot(opts.prevVersion, getMerkleOpts(opts))
+    if (!object[PREV].equals(expectedPrev)) {
+      throw new Error(`object[${PREV}] and "prevVersion" don't match`)
+    }
+  }
+
+  if (object[PREV_TO_SENDER] || opts.prevObjectFromSender) {
+    if (object[PREV_TO_SENDER] && !opts.prevObjectFromSender) {
+      throw new Error('expected "prevObjectFromSender"')
+    }
+
+    if (!object[PREV_TO_SENDER] && opts.prevObjectFromSender) {
+      throw new Error(`object missing property "${PREV_TO_SENDER}"`)
+    }
+
+    const expectedPrev = toMerkleRoot(opts.prevObjectFromSender, getMerkleOpts(opts))
+    if (!object[PREV_TO_SENDER].equals(expectedPrev)) {
+      throw new Error(`object[${PREV_TO_SENDER}] and "prevObjectFromSender" don't match`)
+    }
+  }
+}
+
+function createMerkleTree (obj, opts, cb) {
+  if (typeof opts === 'function') {
+    cb = opts
+    opts = null
+  }
 
   const gen = merkleGenerator(getMerkleOpts(opts))
 
   // list with flat-tree indices
   const nodes = []
-  const msg = opts.message
   // const indexedTree = {}
-  const keys = getKeys(msg)
+  const keys = getKeys(obj)
   keys.forEach(function (key, i) {
     gen.next(key, nodes)
-    gen.next(stringify(msg[key]), nodes)
+    gen.next(stringify(obj[key]), nodes)
   })
 
   nodes.push.apply(nodes, gen.finalize())
@@ -154,14 +261,14 @@ function createMerkleTree (opts, cb) {
   const ret = {
     nodes: sorted,
     roots: gen.roots,
-    indices: getIndices(msg, keys)
+    indices: getIndices(obj, keys)
   }
 
   return maybeAsync(ret, cb)
 }
 
-function prover (opts) {
-  const tree = createMerkleTree(opts)
+function prover (object, opts) {
+  const tree = createMerkleTree(object, getMerkleOpts(opts))
   const leaves = []
   const builder = {
     add: function (opts) {
@@ -268,9 +375,11 @@ function maybeAsync (val, cb) {
 }
 
 function getMerkleOpts (opts) {
+  if (!opts) return DEFAULT_MERKLE_OPTS
+
   return {
-    leaf: opts.leaf || DEFAULT_GEN_OPTS.leaf,
-    parent: opts.parent || DEFAULT_GEN_OPTS.parent
+    leaf: opts.leaf || DEFAULT_MERKLE_OPTS.leaf,
+    parent: opts.parent || DEFAULT_MERKLE_OPTS.parent
   }
 }
 
@@ -319,6 +428,29 @@ function omit (obj) {
   return copy
 }
 
-function getKeyData (merkleRoot, sig) {
-  return sha256(Buffer.concat([merkleRoot, sig], 2))
+function getKeyData (sigData, sig) {
+  return sha256(Buffer.concat([sigData, sig]))
+}
+
+function getSigData (merkleRoot, salt) {
+  return sha256(Buffer.concat([merkleRoot, salt]))
+}
+
+function genSalt () {
+  return crypto.randomBytes(32)
+}
+
+function getMerkleRoot (tree) {
+  return tree.roots[0].hash
+}
+
+function computeMerkleRoot (obj, opts) {
+  const tree = createMerkleTree(obj, getMerkleOpts(opts))
+  return getMerkleRoot(tree)
+}
+
+function toMerkleRoot (merkleRootOrObj, opts) {
+  return Buffer.isBuffer(merkleRootOrObj)
+    ? merkleRootOrObj
+    : computeMerkleRoot(merkleRootOrObj, opts)
 }
