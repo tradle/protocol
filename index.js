@@ -25,6 +25,8 @@ const DATA_NODE_TYPE = typeforce.compile({
   index: typeforce.Number
 })
 
+const KEY_TYPE = typeforce.oneOf(typeforce.String, typeforce.Object)
+
 const NODE_TYPE = typeforce.compile({
   hash: typeforce.Buffer,
   index: typeforce.Number
@@ -98,7 +100,7 @@ function createObject (obj, opts) {
  */
 function send (opts, cb) {
   typeforce({
-    pub: typeforce.oneOf(typeforce.String, typeforce.Object),
+    pub: KEY_TYPE,
     object: typeforce.Object,
     sign: typeforce.Function,
     signingKeyPub: typeforce.maybe(typeforce.String)
@@ -154,13 +156,18 @@ function send (opts, cb) {
  */
 function receive (opts, cb) {
   typeforce({
-    priv: typeforce.oneOf(typeforce.String, typeforce.Object),
+    pub: typeforce.maybe(KEY_TYPE),
+    priv: typeforce.maybe(KEY_TYPE),
     header: typeforce.Object,
     object: typeforce.Object,
     verify: typeforce.Function,
     prevVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
     prevObjectFromSender: typeforce.maybe(MERKLE_ROOT_OR_OBJ)
-  }, opts)
+  }, opts, true)
+
+  if (!opts.priv && !opts.pub) {
+    throw new Error('expected "pub" or "priv"')
+  }
 
   typeforce(HEADER_TYPE, opts.header)
 
@@ -184,18 +191,34 @@ function receive (opts, cb) {
 
     const keyData = getKeyData(sigData, sig)
     const msgKey = secp256k1.keyFromPrivate(keyData)
-    let priv
-    try {
-      priv = importPriv(opts.priv, secp256k1)
-    } catch (err) {
-      return cb(err)
+    let destKey
+    if (opts.priv) {
+      let priv
+      try {
+        priv = importPriv(opts.priv, secp256k1)
+      } catch (err) {
+        return cb(err)
+      }
+
+      const destPriv = priv.add(msgKey.priv).mod(secp256k1.n)
+      destKey = secp256k1.keyFromPrivate(destPriv)
+    } else {
+      let pub
+      try {
+        pub = importPub(opts.pub, secp256k1)
+      } catch (err) {
+        return cb(err)
+      }
+
+      const msgKeyPub = msgKey.getPublic()
+      const destPub = pub.add(msgKeyPub)
+      destKey = secp256k1.keyFromPublic(destPub)
     }
 
-    const destPriv = priv.add(msgKey.priv).mod(secp256k1.n)
     cb(null, {
       tree: tree,
       msgKey: msgKey,
-      destKey: secp256k1.keyFromPrivate(destPriv),
+      destKey: destKey,
       root: merkleRoot
     })
   })
