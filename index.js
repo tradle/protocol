@@ -13,7 +13,7 @@ const secp256k1 = ec('secp256k1')
 // const ed25519 = ec('ed25519')
 const BN = require('bn.js')
 const constants = require('@tradle/constants')
-const SALT = constants.NONCE
+// const SALT = constants.NONCE
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const ORIG = constants.ROOT_HASH
@@ -41,7 +41,7 @@ const MERKLE_ROOT_OR_OBJ = typeforce.oneOf(typeforce.Object, typeforce.Buffer)
 
 const HEADER_TYPE = typeforce.compile({
   [SIG]: typeforce.Buffer,
-  [SALT]: typeforce.Buffer
+  // [SALT]: typeforce.Buffer
 })
 
 const DEFAULT_MERKLE_OPTS = {
@@ -108,8 +108,9 @@ function send (opts, cb) {
 
   const tree = createMerkleTree(opts.object, getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
-  const salt = genSalt()
-  const sigData = getSigData(merkleRoot, salt)
+  // const salt = genSalt()
+  // const sigData = getSigData(merkleRoot, salt)
+  const sigData = merkleRoot
   opts.sign(sigData, function (err, sig) {
     if (err) return cb(err)
 
@@ -132,7 +133,7 @@ function send (opts, cb) {
       tree: tree,
       root: merkleRoot,
       header: {
-        [SALT]: salt,
+        // [SALT]: salt,
         [SIG]: sig,
         [PUBKEY]: opts.signingKeyPub
       },
@@ -184,7 +185,8 @@ function receive (opts, cb) {
   const tree = createMerkleTree(object, getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
   const sig = header[SIG]
-  const sigData = getSigData(merkleRoot, header[SALT])
+  // const sigData = getSigData(merkleRoot, header[SALT])
+  const sigData = merkleRoot
   opts.verify(sigData, sig, function (err, verified) {
     if (err) return cb(err)
     if (!verified) return cb(new Error('bad signature'))
@@ -459,9 +461,9 @@ function getSigData (merkleRoot, salt) {
   return sha256(Buffer.concat([merkleRoot, salt]))
 }
 
-function genSalt () {
-  return crypto.randomBytes(32)
-}
+// function genSalt () {
+//   return crypto.randomBytes(32)
+// }
 
 function getMerkleRoot (tree) {
   return tree.roots[0].hash
