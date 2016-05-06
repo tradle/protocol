@@ -9,10 +9,12 @@ const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const constants = require('@tradle/constants')
+const parallel = require('run-parallel')
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
 const SIG = constants.SIG
+const TYPE = constants.TYPE
 const PREV = constants.PREV_HASH
 const ORIG = constants.ROOT_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
@@ -35,7 +37,6 @@ module.exports = {
   send: send,
   receive: receive,
   validateSequence: validateSequence,
-  processHeader: processHeader,
   prove: prove,
   prover: prover,
   verifyProof: verifyProof,
@@ -76,6 +77,44 @@ function createObject (obj, opts) {
 //   }, opts)
 // }
 
+function createShare (opts, cb) {
+  typeforce({
+    toKey: typeforce.Buffer,
+    sigKey: typeforce.Buffer,
+    merkleRoot: typeforce.Buffer
+  }, opts)
+
+  const share = {
+    [TYPE]: 'tradle.Share',
+    recipient: opts.toKey,
+    object: opts.merkleRoot
+  }
+
+  merkleAndSign({
+    sigKey: opts.sigKey,
+    object: share
+  }, cb)
+}
+
+function merkleAndSign (opts, cb) {
+  typeforce({
+    sigKey: typeforce.Buffer,
+    object: typeforce.Object
+  }, opts)
+
+  cb = utils.asyncify(cb)
+  const object = opts.object
+  const tree = createMerkleTree(object, getMerkleOpts(opts))
+  const merkleRoot = getMerkleRoot(tree)
+  object[SIG] = utils.sign(merkleRoot, opts.sigKey)
+  cb(null, {
+    tree: tree,
+    merkleRoot: merkleRoot,
+    sig: object[SIG],
+    object: object
+  })
+}
+
 /**
  * Calculate destination public key
  * used by the sender of a transaction
@@ -90,94 +129,35 @@ function send (opts, cb) {
     object: typeforce.Object
   }, opts)
 
-  const toKey = opts.toKey
-  const sigKey = opts.sigKey
   const object = opts.object
-  const tree = createMerkleTree(object, getMerkleOpts(opts))
-  const merkleRoot = getMerkleRoot(tree)
-  const sigInput = {
-    merkleRoot: merkleRoot,
-    recipient: toKey
-  }
+  merkleAndSign(opts, function (err, objInfo) {
+    if (err) return cb(err)
 
-  const sigData = getSigData(sigInput)
-  const sig = utils.sign(sigData, sigKey)
-  const keyData = getKeyInputData(sigData, sig)
-  const msgKey = toPrivateKey(keyData)
-  const outputPub = secp256k1.publicKeyCombine([
-    toKey,
-    secp256k1.publicKeyCreate(msgKey)
-  ])
+    opts.merkleRoot = objInfo.merkleRoot
+    createShare(opts, function (err, shareInfo) {
+      if (err) return cb(err)
 
-  cb(null, {
-    // msgKey: msgKey,
-    outputKey: { pub: outputPub },
-    tree: tree,
-    merkleRoot: merkleRoot,
-    header: {
-      sig: sig,
-      sigKey: secp256k1.publicKeyCreate(sigKey),
-      sigInput: sigInput
-    },
-    object: object
+      const keyData = getKeyInputData(shareInfo)
+      const msgKey = toPrivateKey(keyData)
+      const outputPub = secp256k1.publicKeyCombine([
+        opts.toKey,
+        secp256k1.publicKeyCreate(msgKey)
+      ])
+
+      cb(null, {
+        outputKey: outputPub,
+        shareInfo: shareInfo,
+        objectInfo: objInfo
+      })
+    })
   })
 }
 
 function separate (obj) {
   return {
-    header: utils.pick(obj, 'sig', 'sigInput', 'sigKey'),
+    headers: [utils.pick(obj, 'sig', 'sigInput', 'sigKey')],
     object: utils.omit(obj, 'sig')
   }
-}
-
-function serialize (obj) {
-  // use protocol-buffers
-}
-
-function processHeader (opts, cb) {
-  typeforce({
-    toKey: types.keyObj,
-    header: types.header,
-    object: typeforce.Object
-  }, opts, true)
-
-  cb = utils.asyncify(cb)
-  const toKey = opts.toKey
-  const object = opts.object
-  const header = opts.header
-  const tree = createMerkleTree(object, getMerkleOpts(opts))
-  const merkleRoot = getMerkleRoot(tree)
-  const sigData = getSigData(header.sigInput)
-  const verified = utils.verify(sigData, header.sig, header.sigKey)
-  if (!verified) return cb(new Error('bad signature'))
-
-  const keyData = getKeyInputData(sigData, header.sig)
-  const msgKey = toPrivateKey(keyData)
-
-  let outputKey = {}
-  if (toKey.priv) {
-    try {
-      outputKey.priv = secp256k1.privateKeyTweakAdd(toKey.priv, msgKey)
-    } catch (err) {
-      return cb(err)
-    }
-  } else {
-    try {
-      outputKey.pub = secp256k1.publicKeyCombine([
-        toKey.pub,
-        secp256k1.publicKeyCreate(msgKey)
-      ])
-    } catch (err) {
-      return cb(err)
-    }
-  }
-
-  cb(null, {
-    tree: tree,
-    // msgKey: msgKey,
-    outputKey: outputKey,
-    merkleRoot: merkleRoot
-  })
 }
 
 /**
@@ -188,6 +168,11 @@ function processHeader (opts, cb) {
  * @param  {Function} cb(?Error, ?elliptic.KeyPair)
  */
 function receive (opts, cb) {
+  typeforce({
+    share: typeforce.Object,
+    object: typeforce.Object
+  }, opts, true)
+
   cb = utils.asyncify(cb)
   try {
     validateSequence(opts.object, opts)
@@ -195,7 +180,42 @@ function receive (opts, cb) {
     return cb(err)
   }
 
-  processHeader(opts, cb)
+  const object = opts.object
+  const share = opts.share
+  const mOpts = getMerkleOpts(opts)
+  const oMerkleRoot = computeMerkleRoot(utils.omit(object, SIG), mOpts)
+  const sMerkleRoot = computeMerkleRoot(utils.omit(share, SIG), mOpts)
+  const shareSig = share[SIG]
+  const verified = utils.verify(sMerkleRoot, shareSig)
+  if (!verified) return cb(new Error('bad signature'))
+
+  const keyData = getKeyInputData({ sig: shareSig })
+  const msgKey = toPrivateKey(keyData)
+  const outputPub = secp256k1.publicKeyCombine([
+    share.recipient,
+    secp256k1.publicKeyCreate(msgKey)
+  ])
+
+  // if (toKey.priv) {
+  //   try {
+  //     outputKey.priv = secp256k1.privateKeyTweakAdd(toKey.priv, msgKey)
+  //   } catch (err) {
+  //     return cb(err)
+  //   }
+  // } else {
+  //   try {
+  //     outputKey.pub = secp256k1.publicKeyCombine([
+  //       toKey.pub,
+  //       secp256k1.publicKeyCreate(msgKey)
+  //     ])
+  //   } catch (err) {
+  //     return cb(err)
+  //   }
+  // }
+
+  cb(null, {
+    outputKey: outputPub
+  })
 }
 
 function validateSequence (object, opts) {
@@ -413,10 +433,12 @@ function getIndices (obj, keys) {
   return indices
 }
 
-function getKeyInputData (sigData, sig) {
-  typeforce(typeforce.Buffer, sigData)
-  typeforce(typeforce.Buffer, sig)
-  return Buffer.concat([sigData, sig])
+function getKeyInputData (objInfo) {
+  typeforce({
+    sig: typeforce.Buffer,
+  }, objInfo)
+
+  return objInfo.sig
 }
 
 function getMerkleRoot (tree) {
@@ -452,3 +474,8 @@ function toPrivateKey (priv) {
 
   return priv
 }
+
+// function merkleSignMerkle (data, key, merkleOpts, cb) {
+//   const shareMerkleRoot = computeMerkleRoot(share, merkleOpts)
+//   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
+// }

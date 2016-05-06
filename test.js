@@ -27,56 +27,56 @@ const carol = {
   sigKey: new Buffer('a9d929bae0eee133965398322fb6db8e9285a1cd1c01b1cbc69d2390b433bc41', 'hex')
 }
 
-test('encode, decode', function (t) {
-  var obj = {
-    a: 1,
-    b: 2
-  }
+// test('encode, decode', function (t) {
+//   var obj = {
+//     a: 1,
+//     b: 2
+//   }
 
-  // bob sends
-  const toKey = secp256k1.publicKeyCreate(alice.chainKey)
-  protocol.send({
-    toKey: toKey,
-    sigKey: bob.sigKey,
-    object: obj
-  }, function (err, sendRes) {
-    if (err) throw err
+//   // bob sends
+//   const toKey = secp256k1.publicKeyCreate(alice.chainKey)
+//   protocol.send({
+//     toKey: toKey,
+//     sigKey: bob.sigKey,
+//     object: obj
+//   }, function (err, sendRes) {
+//     if (err) throw err
 
-    const header = sendRes.header
-    const serialized = proto.serialize({
-      toKey: toKey,
-      header: sendRes.header,
-      object: sendRes.object
-    })
+//     const header = sendRes.header
+//     const serialized = proto.serialize({
+//       toKey: toKey,
+//       header: sendRes.header,
+//       object: sendRes.object
+//     })
 
-    const unserialized = proto.unserialize(serialized)
-    t.same(unserialized, {
-      headers: [
-        extend(header, { txId: null })
-      ],
-      object: sendRes.object
-    })
+//     const unserialized = proto.unserialize(serialized)
+//     t.same(unserialized, {
+//       headers: [
+//         extend(header, { txId: null })
+//       ],
+//       object: sendRes.object
+//     })
 
-    // t.same(unserialized, {
-    //   header: [
-    //     {
-    //       sig: header.sig,
-    //       sigInput: {
-    //         merkleRoot: header.sigInput.merkleRoot,
-    //         recipient: {
-    //           identifier: toKey,
-    //           identifierType: proto.IdentifierType.PUBKEY
-    //         }
-    //       }
-    //     }
-    //   ],
-    //   object: sendRes.object
-    // })
+//     // t.same(unserialized, {
+//     //   header: [
+//     //     {
+//     //       sig: header.sig,
+//     //       sigInput: {
+//     //         merkleRoot: header.sigInput.merkleRoot,
+//     //         recipient: {
+//     //           identifier: toKey,
+//     //           identifierType: proto.IdentifierType.PUBKEY
+//     //         }
+//     //       }
+//     //     }
+//     //   ],
+//     //   object: sendRes.object
+//     // })
 
-    t.end()
-  })
+//     t.end()
+//   })
 
-})
+// })
 
 test('bob sends, alice receives, carol audits', function (t) {
   var obj = {
@@ -94,44 +94,39 @@ test('bob sends, alice receives, carol audits', function (t) {
 
     t.doesNotThrow(function () {
       typeforce({
-        header: types.header,
-        object: typeforce.Object,
-        merkleRoot: typeforce.Buffer,
-        tree: types.merkleTree,
-        outputKey: types.keyObj
+        objectInfo: typeforce.Object,
+        shareInfo: typeforce.Object,
+        outputKey: typeforce.Buffer
       }, sendRes)
     })
 
     // alice receives
     protocol.receive({
-      toKey: {
-        priv: alice.chainKey
-      },
-      object: obj,
-      header: sendRes.header
+      // toKey: {
+      //   priv: alice.chainKey
+      // },
+      object: sendRes.objectInfo.object,
+      share: sendRes.shareInfo.object
     }, function (err, receiveRes) {
       if (err) throw err
 
-      if (!receiveRes.outputKey.pub) {
-        receiveRes.outputKey.pub = secp256k1.publicKeyCreate(receiveRes.outputKey.priv)
-      }
 
-      t.same(sendRes.outputKey.pub, receiveRes.outputKey.pub, 'alice and bob derive same per-message key')
-      t.notOk(sendRes.outputKey.priv, 'bob only has per-message public key')
-      t.ok(receiveRes.outputKey.priv, 'alice has per-message private key')
+      t.same(sendRes.outputKey, receiveRes.outputKey, 'alice and bob derive same per-message key')
+      // t.notOk(sendRes.outputKey.priv, 'bob only has per-message public key')
+      // t.ok(receiveRes.outputKey.priv, 'alice has per-message private key')
 
-      // carol audits
-      protocol.processHeader({
-        toKey: {
-          pub: secp256k1.publicKeyCreate(alice.chainKey)
-        },
+      // carol audits, knowing
+      protocol.receive({
+        // toKey: {
+        //   pub: secp256k1.publicKeyCreate(alice.chainKey)
+        // },
         object: obj,
-        header: sendRes.header
+        share: sendRes.shareInfo.object
       }, function (err, processed) {
         if (err) throw err
 
-        t.same(processed.outputKey.pub, receiveRes.outputKey.pub, 'carol derives same per-message key')
-        t.notOk(processed.outputKey.priv, 'carol does not have per-message private key')
+        t.same(processed.outputKey, receiveRes.outputKey, 'carol derives same per-message key')
+        // t.notOk(processed.outputKey.priv, 'carol does not have per-message private key')
         t.end()
       })
     })
