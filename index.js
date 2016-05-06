@@ -9,6 +9,7 @@ const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const constants = require('@tradle/constants')
+const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
 const SIG = constants.SIG
@@ -39,7 +40,10 @@ module.exports = {
   prover: prover,
   verifyProof: verifyProof,
   leaves: getLeaves,
-  indices: getIndices
+  indices: getIndices,
+  proto: proto,
+  serialize: proto.serialize,
+  deserialize: proto.deserialize
 }
 
 function createObject (obj, opts) {

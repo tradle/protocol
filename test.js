@@ -1,9 +1,13 @@
 
 const crypto = require('crypto')
+const typeforce = require('typeforce')
 const test = require('tape')
-const protocol = require('./')
+const extend = require('xtend')
 const secp256k1 = require('secp256k1')
 const constants = require('@tradle/constants')
+const protocol = require('./')
+const types = require('./lib/types')
+const proto = require('./lib/proto')
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
@@ -23,6 +27,57 @@ const carol = {
   sigKey: new Buffer('a9d929bae0eee133965398322fb6db8e9285a1cd1c01b1cbc69d2390b433bc41', 'hex')
 }
 
+test('encode, decode', function (t) {
+  var obj = {
+    a: 1,
+    b: 2
+  }
+
+  // bob sends
+  const toKey = secp256k1.publicKeyCreate(alice.chainKey)
+  protocol.send({
+    toKey: toKey,
+    sigKey: bob.sigKey,
+    object: obj
+  }, function (err, sendRes) {
+    if (err) throw err
+
+    const header = sendRes.header
+    const serialized = proto.serialize({
+      toKey: toKey,
+      header: sendRes.header,
+      object: sendRes.object
+    })
+
+    const unserialized = proto.unserialize(serialized)
+    t.same(unserialized, {
+      headers: [
+        extend(header, { txId: null })
+      ],
+      object: sendRes.object
+    })
+
+    // t.same(unserialized, {
+    //   header: [
+    //     {
+    //       sig: header.sig,
+    //       sigInput: {
+    //         merkleRoot: header.sigInput.merkleRoot,
+    //         recipient: {
+    //           identifier: toKey,
+    //           identifierType: proto.IdentifierType.PUBKEY
+    //         }
+    //       }
+    //     }
+    //   ],
+    //   object: sendRes.object
+    // })
+
+    t.end()
+  })
+
+})
+
 test('bob sends, alice receives, carol audits', function (t) {
   var obj = {
     a: 1,
@@ -36,6 +91,16 @@ test('bob sends, alice receives, carol audits', function (t) {
     object: obj
   }, function (err, sendRes) {
     if (err) throw err
+
+    t.doesNotThrow(function () {
+      typeforce({
+        header: types.header,
+        object: typeforce.Object,
+        merkleRoot: typeforce.Buffer,
+        tree: types.merkleTree,
+        outputKey: types.keyObj
+      }, sendRes)
+    })
 
     // alice receives
     protocol.receive({
