@@ -7,42 +7,14 @@ const typeforce = require('typeforce')
 const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
-const ec = require('elliptic').ec
-const secp256k1 = ec('secp256k1')
-// const secp256k1Native = require('secp256k1')
-// const ed25519 = ec('ed25519')
-const BN = require('bn.js')
+const secp256k1 = require('secp256k1')
 const constants = require('@tradle/constants')
-// const SALT = constants.NONCE
+const utils = require('./lib/utils')
+const types = require('./lib/types')
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const ORIG = constants.ROOT_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
-const PUBKEY = constants.PUBKEY || 'k'
-const DATA_NODE_TYPE = typeforce.compile({
-  data: typeforce.Buffer,
-  hash: typeforce.Buffer,
-  index: typeforce.Number
-})
-
-const KEY_TYPE = typeforce.oneOf(typeforce.String, typeforce.Object)
-
-const NODE_TYPE = typeforce.compile({
-  hash: typeforce.Buffer,
-  index: typeforce.Number
-})
-
-const MERKLE_ROOT_OR_OBJ = typeforce.oneOf(typeforce.Object, typeforce.Buffer)
-
-// const OBJECT_TYPE = typeforce.compile({
-//   header: typeforce.Object,
-//   body: typeforce.Object
-// })
-
-const HEADER_TYPE = typeforce.compile({
-  [SIG]: typeforce.Buffer,
-  // [SALT]: typeforce.Buffer
-})
 
 const DEFAULT_MERKLE_OPTS = {
   leaf: function (node) {
@@ -54,23 +26,26 @@ const DEFAULT_MERKLE_OPTS = {
 }
 
 module.exports = {
+  secp256k1: secp256k1,
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
   object: createObject,
+  separate: separate,
   send: send,
   receive: receive,
   validateSequence: validateSequence,
+  processHeader: processHeader,
   prove: prove,
   prover: prover,
-  verify: verify,
+  verifyProof: verifyProof,
   leaves: getLeaves,
   indices: getIndices
 }
 
 function createObject (obj, opts) {
   typeforce({
-    prevVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
-    origVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
+    prevVersion: typeforce.maybe(types.merkleRootOrObj),
+    origVersion: typeforce.maybe(types.merkleRootOrObj),
     prevObjectToSender: typeforce.maybe(typeforce.Object)
   }, opts)
 
@@ -91,6 +66,12 @@ function createObject (obj, opts) {
   return obj
 }
 
+// function share (opts, cb) {
+//   typeforce({
+
+//   }, opts)
+// }
+
 /**
  * Calculate destination public key
  * used by the sender of a transaction
@@ -100,53 +81,100 @@ function createObject (obj, opts) {
  */
 function send (opts, cb) {
   typeforce({
-    pub: KEY_TYPE,
-    object: typeforce.Object,
-    sign: typeforce.Function,
-    signingKeyPub: typeforce.maybe(typeforce.String)
+    toKey: typeforce.Buffer,
+    sigKey: typeforce.Buffer,
+    object: typeforce.Object
   }, opts)
 
-  const tree = createMerkleTree(opts.object, getMerkleOpts(opts))
+  const toKey = opts.toKey
+  const sigKey = opts.sigKey
+  const object = opts.object
+  const tree = createMerkleTree(object, getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
-  // const salt = genSalt()
-  // const sigData = getSigData(merkleRoot, salt)
-  const sigData = merkleRoot
-  opts.sign(sigData, function (err, sig) {
-    if (err) return cb(err)
+  const sigInput = {
+    merkleRoot: merkleRoot,
+    recipient: toKey
+  }
 
-    typeforce(typeforce.Buffer, sig)
+  const sigData = getSigData(sigInput)
+  const sig = utils.sign(sigData, sigKey)
+  const keyData = getKeyInputData(sigData, sig)
+  const msgKey = toPrivateKey(keyData)
+  const outputPub = secp256k1.publicKeyCombine([
+    toKey,
+    secp256k1.publicKeyCreate(msgKey)
+  ])
 
-    const keyData = getKeyData(sigData, sig)
-    const msgKey = secp256k1.keyFromPrivate(keyData)
-    let pub
-    try {
-      pub = importPub(opts.pub, secp256k1)
-    } catch (err) {
-      return cb(err)
-    }
-
-    const msgKeyPub = msgKey.getPublic()
-    const destPub = pub.add(msgKeyPub)
-    cb(null, {
-      msgKey: msgKey,
-      destKey: secp256k1.keyFromPublic(destPub),
-      tree: tree,
-      root: merkleRoot,
-      header: {
-        // [SALT]: salt,
-        [SIG]: sig,
-        [PUBKEY]: opts.signingKeyPub
-      },
-      object: opts.object
-    })
+  cb(null, {
+    // msgKey: msgKey,
+    outputKey: { pub: outputPub },
+    tree: tree,
+    merkleRoot: merkleRoot,
+    header: {
+      sig: sig,
+      sigKey: secp256k1.publicKeyCreate(sigKey),
+      sigInput: sigInput
+    },
+    object: object
   })
 }
 
-// function serialize (obj) {
-//   obj.header = {
-//     []
-//   }
-// }
+function separate (obj) {
+  return {
+    header: utils.pick(obj, 'sig', 'sigInput', 'sigKey'),
+    object: utils.omit(obj, 'sig')
+  }
+}
+
+function serialize (obj) {
+  // use protocol-buffers
+}
+
+function processHeader (opts, cb) {
+  typeforce({
+    toKey: types.keyObj,
+    header: types.header,
+    object: typeforce.Object
+  }, opts, true)
+
+  cb = utils.asyncify(cb)
+  const toKey = opts.toKey
+  const object = opts.object
+  const header = opts.header
+  const tree = createMerkleTree(object, getMerkleOpts(opts))
+  const merkleRoot = getMerkleRoot(tree)
+  const sigData = getSigData(header.sigInput)
+  const verified = utils.verify(sigData, header.sig, header.sigKey)
+  if (!verified) return cb(new Error('bad signature'))
+
+  const keyData = getKeyInputData(sigData, header.sig)
+  const msgKey = toPrivateKey(keyData)
+
+  let outputKey = {}
+  if (toKey.priv) {
+    try {
+      outputKey.priv = secp256k1.privateKeyTweakAdd(toKey.priv, msgKey)
+    } catch (err) {
+      return cb(err)
+    }
+  } else {
+    try {
+      outputKey.pub = secp256k1.publicKeyCombine([
+        toKey.pub,
+        secp256k1.publicKeyCreate(msgKey)
+      ])
+    } catch (err) {
+      return cb(err)
+    }
+  }
+
+  cb(null, {
+    tree: tree,
+    // msgKey: msgKey,
+    outputKey: outputKey,
+    merkleRoot: merkleRoot
+  })
+}
 
 /**
  * Calculate destination public key
@@ -156,74 +184,14 @@ function send (opts, cb) {
  * @param  {Function} cb(?Error, ?elliptic.KeyPair)
  */
 function receive (opts, cb) {
-  typeforce({
-    pub: typeforce.maybe(KEY_TYPE),
-    priv: typeforce.maybe(KEY_TYPE),
-    header: typeforce.Object,
-    object: typeforce.Object,
-    verify: typeforce.Function,
-    prevVersion: typeforce.maybe(MERKLE_ROOT_OR_OBJ),
-    prevObjectFromSender: typeforce.maybe(MERKLE_ROOT_OR_OBJ)
-  }, opts, true)
-
-  if (!opts.priv && !opts.pub) {
-    throw new Error('expected "pub" or "priv"')
-  }
-
-  typeforce(HEADER_TYPE, opts.header)
-
-  const object = opts.object
-  const header = opts.header
+  cb = utils.asyncify(cb)
   try {
-    validateSequence(object, opts)
+    validateSequence(opts.object, opts)
   } catch (err) {
-    return process.nextTick(function () {
-      cb(err)
-    })
+    return cb(err)
   }
 
-  const tree = createMerkleTree(object, getMerkleOpts(opts))
-  const merkleRoot = getMerkleRoot(tree)
-  const sig = header[SIG]
-  // const sigData = getSigData(merkleRoot, header[SALT])
-  const sigData = merkleRoot
-  opts.verify(sigData, sig, function (err, verified) {
-    if (err) return cb(err)
-    if (!verified) return cb(new Error('bad signature'))
-
-    const keyData = getKeyData(sigData, sig)
-    const msgKey = secp256k1.keyFromPrivate(keyData)
-    let destKey
-    if (opts.priv) {
-      let priv
-      try {
-        priv = importPriv(opts.priv, secp256k1)
-      } catch (err) {
-        return cb(err)
-      }
-
-      const destPriv = priv.add(msgKey.priv).mod(secp256k1.n)
-      destKey = secp256k1.keyFromPrivate(destPriv)
-    } else {
-      let pub
-      try {
-        pub = importPub(opts.pub, secp256k1)
-      } catch (err) {
-        return cb(err)
-      }
-
-      const msgKeyPub = msgKey.getPublic()
-      const destPub = pub.add(msgKeyPub)
-      destKey = secp256k1.keyFromPublic(destPub)
-    }
-
-    cb(null, {
-      tree: tree,
-      msgKey: msgKey,
-      destKey: destKey,
-      root: merkleRoot
-    })
-  })
+  processHeader(opts, cb)
 }
 
 function validateSequence (object, opts) {
@@ -324,8 +292,8 @@ function prover (object, opts) {
 function prove (opts, cb) {
   // return nodes needed to prove leaves at leafIndices are part of the tree
   typeforce({
-    nodes: typeforce.arrayOf(NODE_TYPE),
-    leaves: typeforce.arrayOf(DATA_NODE_TYPE)
+    nodes: typeforce.arrayOf(types.merkleNode),
+    leaves: typeforce.arrayOf(types.merkleLeaf)
   }, opts)
 
   const prover = merkleProofs.proofGenerator(opts.nodes)
@@ -338,10 +306,10 @@ function prove (opts, cb) {
   return maybeAsync(proof, cb)
 }
 
-function verify (opts, cb) {
+function verifyProof (opts, cb) {
   typeforce({
-    proof: 'Array',
-    node: NODE_TYPE
+    proof: typeforce.arrayOf(types.merkleNode),
+    node: types.merkleNode
   }, opts)
 
   const vOpts = getMerkleOpts(opts)
@@ -441,29 +409,11 @@ function getIndices (obj, keys) {
   return indices
 }
 
-function omit (obj) {
-  let copy = {}
-  let omitted = Array.prototype.slice.call(arguments, 1)
-  for (let p in obj) {
-    if (omitted.indexOf(p) === -1) {
-      copy[p] = obj[p]
-    }
-  }
-
-  return copy
+function getKeyInputData (sigData, sig) {
+  typeforce(typeforce.Buffer, sigData)
+  typeforce(typeforce.Buffer, sig)
+  return Buffer.concat([sigData, sig])
 }
-
-function getKeyData (sigData, sig) {
-  return sha256(Buffer.concat([sigData, sig]))
-}
-
-function getSigData (merkleRoot, salt) {
-  return sha256(Buffer.concat([merkleRoot, salt]))
-}
-
-// function genSalt () {
-//   return crypto.randomBytes(32)
-// }
 
 function getMerkleRoot (tree) {
   return tree.roots[0].hash
@@ -478,4 +428,23 @@ function toMerkleRoot (merkleRootOrObj, opts) {
   return Buffer.isBuffer(merkleRootOrObj)
     ? merkleRootOrObj
     : computeMerkleRoot(merkleRootOrObj, opts)
+}
+
+function getSigData (sigInput) {
+  typeforce(types.sigInput, sigInput)
+
+  return sha256(Buffer.concat([
+    sigInput.merkleRoot,
+    new Buffer(sigInput.recipient, 'hex')
+  ]))
+}
+
+function toPrivateKey (priv) {
+  if (priv.length !== 32) priv = sha256(priv)
+
+  while (!secp256k1.privateKeyVerify(priv)) {
+    priv = sha256(priv)
+  }
+
+  return priv
 }

@@ -2,60 +2,73 @@
 const crypto = require('crypto')
 const test = require('tape')
 const protocol = require('./')
-const ec = require('elliptic').ec
-const secp256k1 = ec('secp256k1')
+const secp256k1 = require('secp256k1')
 const constants = require('@tradle/constants')
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 
 const alice = {
-  // chain: secp256k1.keyFromPrivate('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex'),
-  sign: secp256k1.keyFromPrivate('1987cf92acb0fa32232631826c3e7386a853bc1b0f8233903f17990c70f09096', 'hex')
+  chainKey: new Buffer('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex'),
+  sigKey: new Buffer('1987cf92acb0fa32232631826c3e7386a853bc1b0f8233903f17990c70f09096', 'hex')
 }
 
 const bob = {
-  // chain: secp256k1.keyFromPrivate('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex'),
-  sign: secp256k1.keyFromPrivate('27572001fe781aa04794fd2bab787edcda182dddf1e4331d2aef6fb88cb73812', 'hex')
+  chainKey: new Buffer('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex'),
+  sigKey: new Buffer('27572001fe781aa04794fd2bab787edcda182dddf1e4331d2aef6fb88cb73812', 'hex')
 }
 
-test('bob sends, alice receives', function (t) {
-  t.plan(3)
+const carol = {
+  chainKey: new Buffer('37fe7e4ba51b148261c4a13378e7825c8e7912b38318f8e55e42fbfe31bb8a1a', 'hex'),
+  sigKey: new Buffer('a9d929bae0eee133965398322fb6db8e9285a1cd1c01b1cbc69d2390b433bc41', 'hex')
+}
 
+test('bob sends, alice receives, carol audits', function (t) {
   var obj = {
     a: 1,
     b: 2
   }
 
-  // bob sends, alice receives
+  // bob sends
   protocol.send({
-    pub: alice.sign.getPublic(),
-    object: obj,
-    // signingPubKey: alice.getPublic(false, 'hex'),
-    sign: function (data, cb) {
-      process.nextTick(function () {
-        cb(null, new Buffer(bob.sign.sign(data).toDER()))
-      })
-    }
+    toKey: secp256k1.publicKeyCreate(alice.chainKey),
+    sigKey: bob.sigKey,
+    object: obj
   }, function (err, sendRes) {
     if (err) throw err
 
+    // alice receives
     protocol.receive({
-      priv: alice.sign.priv,
+      toKey: {
+        priv: alice.chainKey
+      },
       object: obj,
-      header: sendRes.header,
-      verify: function (data, sig, cb) {
-        process.nextTick(function () {
-          cb(null, bob.sign.verify(data, sig))
-        })
-      }
+      header: sendRes.header
     }, function (err, receiveRes) {
       if (err) throw err
 
-      t.equal(sendRes.destKey.getPublic(true, 'hex'), receiveRes.destKey.getPublic(true, 'hex'), 'alice and bob derive same per-message key')
-      t.notOk(sendRes.destKey.priv, 'bob only has per-message public key')
-      t.ok(receiveRes.destKey.priv, 'alice has per-message private key')
-      t.end()
+      if (!receiveRes.outputKey.pub) {
+        receiveRes.outputKey.pub = secp256k1.publicKeyCreate(receiveRes.outputKey.priv)
+      }
+
+      t.same(sendRes.outputKey.pub, receiveRes.outputKey.pub, 'alice and bob derive same per-message key')
+      t.notOk(sendRes.outputKey.priv, 'bob only has per-message public key')
+      t.ok(receiveRes.outputKey.priv, 'alice has per-message private key')
+
+      // carol audits
+      protocol.processHeader({
+        toKey: {
+          pub: secp256k1.publicKeyCreate(alice.chainKey)
+        },
+        object: obj,
+        header: sendRes.header
+      }, function (err, processed) {
+        if (err) throw err
+
+        t.same(processed.outputKey.pub, receiveRes.outputKey.pub, 'carol derives same per-message key')
+        t.notOk(processed.outputKey.priv, 'carol does not have per-message private key')
+        t.end()
+      })
     })
   })
 })
@@ -204,7 +217,7 @@ test('prove, verify', function (t) {
     if (i % 2) return
 
     const method = provedIndices.indexOf(i) === -1 ? 'notOk' : 'ok'
-    t[method](protocol.verify({
+    t[method](protocol.verifyProof({
       proof: proof,
       node: node
     }))
@@ -243,7 +256,7 @@ test('prove with builder, verify', function (t) {
     if (i % 2) return
 
     const method = proved.indexOf(i) === -1 ? 'notOk' : 'ok'
-    t[method](protocol.verify({
+    t[method](protocol.verifyProof({
       proof: proof,
       node: node
     }))
