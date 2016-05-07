@@ -2,7 +2,9 @@
 'use strict'
 
 const crypto = require('crypto')
-const extend = require('xtend')
+const clone = require('xtend')
+const extend = require('xtend/mutable')
+const debug = require('debug')('tradle:protocol')
 const typeforce = require('typeforce')
 const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
@@ -33,7 +35,6 @@ module.exports = {
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
   object: createObject,
-  separate: separate,
   send: send,
   receive: receive,
   validateSequence: validateSequence,
@@ -55,7 +56,7 @@ function createObject (obj, opts) {
   }, opts)
 
   // not too safe
-  obj = extend(obj)
+  obj = clone(obj)
   if (opts.prevVersion) {
     obj[PREV] = toMerkleRoot(opts.prevVersion, opts)
   }
@@ -79,39 +80,57 @@ function createObject (obj, opts) {
 
 function createShare (opts, cb) {
   typeforce({
-    toKey: typeforce.Buffer,
-    sigKey: typeforce.Buffer,
+    recipient: types.recipient,
+    sender: types.sender,
     merkleRoot: typeforce.Buffer
   }, opts)
 
   const share = {
     [TYPE]: 'tradle.Share',
-    recipient: opts.toKey,
-    object: opts.merkleRoot
+    object: opts.merkleRoot,
+    recipient: opts.recipient
   }
 
   merkleAndSign({
-    sigKey: opts.sigKey,
+    sender: opts.sender,
     object: share
   }, cb)
 }
 
 function merkleAndSign (opts, cb) {
   typeforce({
-    sigKey: typeforce.Buffer,
+    sender: types.sender,
     object: typeforce.Object
   }, opts)
 
+  // async because sign function
+  // may eventually become asynchronous
   cb = utils.asyncify(cb)
   const object = opts.object
+  if (object[SIG]) {
+    debug('replacing sig in object')
+    delete object[SIG]
+  }
+
   const tree = createMerkleTree(object, getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
-  object[SIG] = utils.sign(merkleRoot, opts.sigKey)
-  cb(null, {
-    tree: tree,
-    merkleRoot: merkleRoot,
-    sig: object[SIG],
-    object: object
+  opts.sender.sign(merkleRoot, function (err, sig) {
+    if (err) return cb(err)
+
+    object[SIG] = proto.schema.Signature.encode({
+      sigPubKey: {
+        curve: 'secp256k1',
+        value: opts.sender.sigPubKey
+      },
+      sig: sig
+    })
+
+    cb(null, {
+      tree: tree,
+      merkleRoot: merkleRoot,
+      sig: object[SIG],
+      object: object
+    })
   })
 }
 
@@ -124,8 +143,8 @@ function merkleAndSign (opts, cb) {
  */
 function send (opts, cb) {
   typeforce({
-    toKey: typeforce.Buffer,
-    sigKey: typeforce.Buffer,
+    sender: types.sender,
+    recipient: types.recipient,
     object: typeforce.Object
   }, opts)
 
@@ -140,7 +159,7 @@ function send (opts, cb) {
       const keyData = getKeyInputData(shareInfo)
       const msgKey = toPrivateKey(keyData)
       const outputPub = secp256k1.publicKeyCombine([
-        opts.toKey,
+        opts.recipient.pubKey,
         secp256k1.publicKeyCreate(msgKey)
       ])
 
@@ -151,13 +170,6 @@ function send (opts, cb) {
       })
     })
   })
-}
-
-function separate (obj) {
-  return {
-    headers: [utils.pick(obj, 'sig', 'sigInput', 'sigKey')],
-    object: utils.omit(obj, 'sig')
-  }
 }
 
 /**
@@ -192,26 +204,9 @@ function receive (opts, cb) {
   const keyData = getKeyInputData({ sig: shareSig })
   const msgKey = toPrivateKey(keyData)
   const outputPub = secp256k1.publicKeyCombine([
-    share.recipient,
+    share.recipient.pubKey,
     secp256k1.publicKeyCreate(msgKey)
   ])
-
-  // if (toKey.priv) {
-  //   try {
-  //     outputKey.priv = secp256k1.privateKeyTweakAdd(toKey.priv, msgKey)
-  //   } catch (err) {
-  //     return cb(err)
-  //   }
-  // } else {
-  //   try {
-  //     outputKey.pub = secp256k1.publicKeyCombine([
-  //       toKey.pub,
-  //       secp256k1.publicKeyCreate(msgKey)
-  //     ])
-  //   } catch (err) {
-  //     return cb(err)
-  //   }
-  // }
 
   cb(null, {
     outputKey: outputPub
@@ -250,7 +245,7 @@ function validateSequence (object, opts) {
   }
 }
 
-function createMerkleTree (obj, opts, cb) {
+function createMerkleTree (obj, opts) {
   if (typeof opts === 'function') {
     cb = opts
     opts = null
@@ -260,7 +255,6 @@ function createMerkleTree (obj, opts, cb) {
 
   // list with flat-tree indices
   const nodes = []
-  // const indexedTree = {}
   const keys = getKeys(obj)
   keys.forEach(function (key, i) {
     gen.next(key, nodes)
@@ -275,13 +269,11 @@ function createMerkleTree (obj, opts, cb) {
     sorted[idx] = node
   }
 
-  const ret = {
+  return {
     nodes: sorted,
     roots: gen.roots,
     indices: getIndices(obj, keys)
   }
-
-  return maybeAsync(ret, cb)
 }
 
 function prover (object, opts) {
@@ -313,7 +305,7 @@ function prover (object, opts) {
   return builder
 }
 
-function prove (opts, cb) {
+function prove (opts) {
   // return nodes needed to prove leaves at leafIndices are part of the tree
   typeforce({
     nodes: typeforce.arrayOf(types.merkleNode),
@@ -326,8 +318,7 @@ function prove (opts, cb) {
     prover.add(leaves[i])
   }
 
-  const proof = prover.proof()
-  return maybeAsync(proof, cb)
+  return prover.proof()
 }
 
 function verifyProof (opts, cb) {
@@ -340,8 +331,7 @@ function verifyProof (opts, cb) {
   vOpts.proof = opts.proof
 
   const verify = merkleProofs.verifier(vOpts)
-  const ret = verify(opts.node)
-  return maybeAsync(ret, cb)
+  return verify(opts.node)
 }
 
 function sha256 (data) {
@@ -372,23 +362,6 @@ function alphabetical (a, b) {
 
 function byIndexSort (a, b) {
   return a.index - b.index
-}
-
-/**
- * return a value synchronously or asynchronously
- * depending on if callback is passed
- * @param  {anything}   val [description]
- * @param  {?Function}  cb  [description]
- * @return {anything}   val
- */
-function maybeAsync (val, cb) {
-  if (cb) {
-    process.nextTick(function () {
-      cb(null, val)
-    })
-  }
-
-  return val
 }
 
 function getMerkleOpts (opts) {

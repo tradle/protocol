@@ -8,6 +8,7 @@ const constants = require('@tradle/constants')
 const protocol = require('./')
 const types = require('./lib/types')
 const proto = require('./lib/proto')
+const utils = require('./lib/utils')
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
@@ -86,8 +87,16 @@ test('bob sends, alice receives, carol audits', function (t) {
 
   // bob sends
   protocol.send({
-    toKey: secp256k1.publicKeyCreate(alice.chainKey),
-    sigKey: bob.sigKey,
+    sender: {
+      sigPubKey: privToPub(bob.sigKey),
+      sign: function (merkleRoot, cb) {
+        cb(null, utils.sign(merkleRoot, bob.sigKey))
+      }
+    },
+    recipient: {
+      pubKey: privToPub(alice.chainKey),
+      identifier: new Buffer('alice')
+    },
     object: obj
   }, function (err, sendRes) {
     if (err) throw err
@@ -102,9 +111,6 @@ test('bob sends, alice receives, carol audits', function (t) {
 
     // alice receives
     protocol.receive({
-      // toKey: {
-      //   priv: alice.chainKey
-      // },
       object: sendRes.objectInfo.object,
       share: sendRes.shareInfo.object
     }, function (err, receiveRes) {
@@ -117,9 +123,6 @@ test('bob sends, alice receives, carol audits', function (t) {
 
       // carol audits, knowing
       protocol.receive({
-        // toKey: {
-        //   pub: secp256k1.publicKeyCreate(alice.chainKey)
-        // },
         object: obj,
         share: sendRes.shareInfo.object
       }, function (err, processed) {
@@ -327,4 +330,8 @@ test('prove with builder, verify', function (t) {
 
 function sha256 (data) {
   return crypto.createHash('sha256').update(data).digest()
+}
+
+function privToPub (key) {
+  return secp256k1.publicKeyCreate(key)
 }
