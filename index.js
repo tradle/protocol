@@ -4,7 +4,6 @@
 const crypto = require('crypto')
 const clone = require('xtend')
 const extend = require('xtend/mutable')
-const debug = require('debug')('tradle:protocol')
 const typeforce = require('typeforce')
 const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
@@ -44,8 +43,8 @@ module.exports = {
   leaves: getLeaves,
   indices: getIndices,
   proto: proto,
-  serialize: proto.serialize,
-  deserialize: proto.deserialize
+  ref: getRef,
+  header: getHeader
 }
 
 function createObject (obj, opts) {
@@ -82,12 +81,12 @@ function createShare (opts, cb) {
   typeforce({
     recipient: types.recipient,
     sender: types.sender,
-    merkleRoot: typeforce.Buffer
+    object: typeforce.Object
   }, opts)
 
   const share = {
     [TYPE]: 'tradle.Share',
-    object: opts.merkleRoot,
+    object: getRef(opts.object),
     recipient: opts.recipient
   }
 
@@ -103,17 +102,17 @@ function merkleAndSign (opts, cb) {
     object: typeforce.Object
   }, opts)
 
+  const object = opts.object
+  // if (object[SIG]) throw new Error('object is already signed')
+
   // async because sign function
   // may eventually become asynchronous
   cb = utils.asyncify(cb)
-  const object = opts.object
-  if (object[SIG]) {
-    debug('replacing sig in object')
-    delete object[SIG]
-  }
 
   const tree = createMerkleTree(object, getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
+  if (object[SIG]) return onsigned()
+
   opts.sender.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
@@ -125,13 +124,17 @@ function merkleAndSign (opts, cb) {
       sig: sig
     })
 
+    onsigned()
+  })
+
+  function onsigned () {
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
       sig: object[SIG],
       object: object
     })
-  })
+  }
 }
 
 /**
@@ -152,8 +155,11 @@ function send (opts, cb) {
   merkleAndSign(opts, function (err, objInfo) {
     if (err) return cb(err)
 
-    opts.merkleRoot = objInfo.merkleRoot
-    createShare(opts, function (err, shareInfo) {
+    createShare({
+      sender: opts.sender,
+      recipient: opts.recipient,
+      object: object
+    }, function (err, shareInfo) {
       if (err) return cb(err)
 
       const keyData = getKeyInputData(shareInfo)
@@ -446,6 +452,17 @@ function toPrivateKey (priv) {
   }
 
   return priv
+}
+
+function getHeader (obj) {
+  return utils.pick(obj, SIG)
+}
+
+function getRef (obj) {
+  if (Buffer.isBuffer(obj)) return obj
+
+  const header = getHeader(obj)
+  return sha256(stringify(header))
 }
 
 // function merkleSignMerkle (data, key, merkleOpts, cb) {

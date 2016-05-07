@@ -95,7 +95,7 @@ test('bob sends, alice receives, carol audits', function (t) {
     },
     recipient: {
       pubKey: privToPub(alice.chainKey),
-      identifier: new Buffer('alice')
+      ref: new Buffer('alice')
     },
     object: obj
   }, function (err, sendRes) {
