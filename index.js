@@ -18,7 +18,7 @@ const SIG = constants.SIG
 const TYPE = constants.TYPE
 const PREV = constants.PREV_HASH
 const ORIG = constants.ROOT_HASH
-const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
+const HEADER_PROPS = [SIG]
 
 const DEFAULT_MERKLE_OPTS = {
   leaf: function (node) {
@@ -30,42 +30,51 @@ const DEFAULT_MERKLE_OPTS = {
 }
 
 module.exports = {
+  types: types,
+  merkleHash: sha256,
   secp256k1: secp256k1,
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
   object: createObject,
-  send: send,
-  receive: receive,
-  validateSequence: validateSequence,
+  sealPubKey: calcSealPubKey,
+  sealPrevPubKey: calcSealPrevPubKey,
+  verifySealPubKey: verifySealPubKey,
+  verifySealPrevPubKey: verifySealPrevPubKey,
+  sign: merkleAndSign,
+  createMessage: createMessage,
+  validateMessage: validateMessage,
+  // getSigPubKey: getSigPubKey,
+  sigPubKey: getSigKey,
+  validateObject: validateObject,
+  validateVersioning: validateVersioning,
   prove: prove,
   prover: prover,
   verifyProof: verifyProof,
   leaves: getLeaves,
   indices: getIndices,
   proto: proto,
-  ref: getRef,
-  header: getHeader
+  link: getLink,
+  // prevLink: getPrevLink,
+  header: getHeader,
+  body: getBody,
+  genPrivateKey: newKey
 }
 
-function createObject (obj, opts) {
+function createObject (opts) {
   typeforce({
-    prevVersion: typeforce.maybe(types.merkleRootOrObj),
-    origVersion: typeforce.maybe(types.merkleRootOrObj),
-    prevObjectToSender: typeforce.maybe(typeforce.Object)
-  }, opts)
+    object: typeforce.Object,
+    prev: typeforce.maybe(types.merkleRootOrObj),
+    orig: typeforce.maybe(types.merkleRootOrObj)
+  }, opts, true)
 
-  // not too safe
-  obj = clone(obj)
-  if (opts.prevVersion) {
-    obj[PREV] = toMerkleRoot(opts.prevVersion, opts)
+  // shallow copy not too safe
+  const obj = getBody(opts.object)
+  if (opts.prev) {
+    obj[PREV] = getLink(opts.prev)
   }
 
-  if (opts.origVersion) {
-    obj[ORIG] = toMerkleRoot(opts.origVersion, opts)
-  }
-
-  if (opts.prevObjectToSender) {
-    obj[PREV_TO_SENDER] = toMerkleRoot(opts.prevObjectToSender, opts)
+  if (opts.orig) {
+    obj[ORIG] = getLink(opts.orig)
   }
 
   return obj
@@ -77,23 +86,72 @@ function createObject (obj, opts) {
 //   }, opts)
 // }
 
-function createShare (opts, cb) {
+function createMessage (opts, cb) {
   typeforce({
-    recipient: types.recipient,
+    recipientPubKey: typeforce.Buffer,
     sender: types.sender,
-    object: typeforce.Object
+    object: typeforce.Object,
+    prev: typeforce.maybe(typeforce.Object)
   }, opts)
 
-  const share = {
-    [TYPE]: 'tradle.Share',
-    object: getRef(opts.object),
-    recipient: opts.recipient
+  const object = opts.object
+  if (!object[SIG]) throw new Error('object must be signed')
+
+  cb = utils.asyncify(cb)
+  const msgSigData = getMsgSigData({
+    senderPubKey: opts.sender.sigPubKey,
+    recipientPubKey: opts.recipientPubKey,
+    object: opts.object
+  })
+
+  doSign(opts.sender, msgSigData, function (err, sig) {
+    if (err) return cb(err)
+
+    cb(null, {
+      object: opts.object,
+      [SIG]: sig,
+      [PREV]: opts.prev ? getPrevMessageLink(opts.prev) : null
+    })
+  })
+}
+
+function validateMessage (opts, cb) {
+  typeforce({
+    // roles reversed from createMessage
+    senderPubKey: typeforce.Buffer,
+    recipientPubKey: typeforce.Buffer,
+    message: typeforce.Object,
+    prev: typeforce.maybe(typeforce.Object)
+  }, opts)
+
+  const message = opts.message
+  if (!message[SIG]) throw new Error('object must be signed')
+
+  const msgSigData = getMsgSigData({
+    senderPubKey: opts.senderPubKey,
+    recipientPubKey: opts.recipientPubKey,
+    object: message.object
+  })
+
+  const sigPubKey = utils.getSigKey(msgSigData, message[SIG])
+  if (!sigPubKey || !sigPubKey.value.equals(opts.senderPubKey)) {
+    throw new Error('signature did not match public key')
   }
 
-  merkleAndSign({
-    sender: opts.sender,
-    object: share
-  }, cb)
+  if (message[PREV] || opts.prev) {
+    if (message[PREV] && !opts.prev) {
+      throw new Error('expected "prev"')
+    }
+
+    if (!message[PREV] && opts.prev) {
+      throw new Error(`message missing property "${PREV}"`)
+    }
+
+    const expectedPrev = getPrevMessageLink(opts.prev)
+    if (!message[PREV].equals(expectedPrev)) {
+      throw new Error(`object[${PREV}] and "prev" don't match`)
+    }
+  }
 }
 
 function merkleAndSign (opts, cb) {
@@ -105,29 +163,18 @@ function merkleAndSign (opts, cb) {
   const object = opts.object
   // if (object[SIG]) throw new Error('object is already signed')
 
-  // async because sign function
-  // may eventually become asynchronous
-  cb = utils.asyncify(cb)
-
-  const tree = createMerkleTree(object, getMerkleOpts(opts))
+  const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
   if (object[SIG]) return onsigned()
 
-  opts.sender.sign(merkleRoot, function (err, sig) {
+  doSign(opts.sender, merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
-    object[SIG] = proto.schema.Signature.encode({
-      sigPubKey: {
-        curve: 'secp256k1',
-        value: opts.sender.sigPubKey
-      },
-      sig: sig
-    })
-
+    object[SIG] = sig
     onsigned()
   })
 
-  function onsigned () {
+  function onsigned (err) {
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
@@ -137,45 +184,80 @@ function merkleAndSign (opts, cb) {
   }
 }
 
+function doSign (sender, data, cb) {
+  typeforce(types.sender, sender)
+  typeforce(typeforce.Buffer, data)
+
+  sender.sign(data, function (err, sig) {
+    if (err) return cb(err)
+
+    const encodedSig = proto.schema.Signature.encode({
+      sigPubKey: {
+        curve: 'secp256k1',
+        value: sender.sigPubKey
+      },
+      sig: sig
+    })
+
+    cb(null, encodedSig)
+  })
+}
+
 /**
- * Calculate destination public key
- * used by the sender of a transaction
- *
- * @param  {Object}   opts
- * @param  {?Function} cb(?Error, ?elliptic.KeyPair)
+ * calculate a public key that seals `link` based on `basePubKey`
  */
-function send (opts, cb) {
+function calcSealPubKey (opts) {
   typeforce({
-    sender: types.sender,
-    recipient: types.recipient,
-    object: typeforce.Object
+    basePubKey: typeforce.Buffer,
+    object: typeforce.maybe(typeforce.Object),
+    link: typeforce.maybe(typeforce.Buffer)
+  }, opts, true)
+
+  const link = opts.link || getLink(opts.object)
+  return secp256k1.publicKeyCombine([
+    opts.basePubKey,
+    pubKeyFromLink(link)
+  ])
+}
+
+function calcSealPrevPubKey (opts) {
+  typeforce({
+    basePubKey: typeforce.Buffer,
+    object: typeforce.maybe(typeforce.Object)
+  }, opts, true)
+
+  const link = getSealedPrevLink(opts.object)
+  return secp256k1.publicKeyCombine([
+    opts.basePubKey,
+    pubKeyFromLink(link)
+  ])
+}
+
+function verifySealPubKey (opts) {
+  typeforce({
+    object: typeforce.Object,
+    basePubKey: typeforce.Buffer,
+    sealPubKey: typeforce.Buffer
   }, opts)
 
   const object = opts.object
-  merkleAndSign(opts, function (err, objInfo) {
-    if (err) return cb(err)
+  if (!object[SIG]) throw new Error('object must be signed')
 
-    createShare({
-      sender: opts.sender,
-      recipient: opts.recipient,
-      object: object
-    }, function (err, shareInfo) {
-      if (err) return cb(err)
+  const expected = secp256k1.publicKeyCombine([
+    opts.basePubKey,
+    pubKeyFromObject(object)
+  ])
 
-      const keyData = getKeyInputData(shareInfo)
-      const msgKey = toPrivateKey(keyData)
-      const outputPub = secp256k1.publicKeyCombine([
-        opts.recipient.pubKey,
-        secp256k1.publicKeyCreate(msgKey)
-      ])
+  return expected.equals(opts.sealPubKey)
+}
 
-      cb(null, {
-        outputKey: outputPub,
-        shareInfo: shareInfo,
-        objectInfo: objInfo
-      })
-    })
-  })
+function verifySealPrevPubKey (opts) {
+  typeforce({
+    sealPubKey: typeforce.Buffer
+  }, opts)
+
+  const expected = calcSealPrevPubKey(opts)
+  return expected.equals(opts.sealPubKey)
 }
 
 /**
@@ -183,70 +265,97 @@ function send (opts, cb) {
  * used by the recipient of a transaction
  *
  * @param  {Object}   opts
- * @param  {Function} cb(?Error, ?elliptic.KeyPair)
+ * @param  {Function} cb(?Error)
  */
-function receive (opts, cb) {
+function validateObject (opts, cb) {
   typeforce({
-    share: typeforce.Object,
-    object: typeforce.Object
-  }, opts, true)
+    object: typeforce.Object,
+    senderPubKey: typeforce.Buffer
+  }, opts)
 
-  cb = utils.asyncify(cb)
-  try {
-    validateSequence(opts.object, opts)
-  } catch (err) {
-    return cb(err)
+  validateVersioning(opts)
+  const okey = getSigKey(opts)
+  if (!okey || !okey.value.equals(opts.senderPubKey)) {
+    throw new Error('bad signature')
   }
 
-  const object = opts.object
-  const share = opts.share
-  const mOpts = getMerkleOpts(opts)
-  const oMerkleRoot = computeMerkleRoot(utils.omit(object, SIG), mOpts)
-  const sMerkleRoot = computeMerkleRoot(utils.omit(share, SIG), mOpts)
-  const shareSig = share[SIG]
-  const verified = utils.verify(sMerkleRoot, shareSig)
-  if (!verified) return cb(new Error('bad signature'))
+  // if (!okey || !okey.value.equals(opts.senderPubKey)) {
+  //   return cb(new Error('object has bad signature'))
+  // }
 
-  const keyData = getKeyInputData({ sig: shareSig })
-  const msgKey = toPrivateKey(keyData)
-  const outputPub = secp256k1.publicKeyCombine([
-    share.recipient.pubKey,
-    secp256k1.publicKeyCreate(msgKey)
-  ])
-
-  cb(null, {
-    outputKey: outputPub
-  })
+  // cb()
 }
 
-function validateSequence (object, opts) {
-  if (object[PREV] || opts.prevVersion) {
-    if (object[PREV] && !opts.prevVersion) {
-      throw new Error('expected "prevVersion"')
+// function calcKey () {
+//   const shareSig = share[SIG]
+//   const keyData = getKeyInputData({ sig: shareSig })
+//   const msgKey = toPrivateKey(keyData)
+//   const outputPub = secp256k1.publicKeyCombine([
+//     share.recipient.pubKey,
+//     secp256k1.publicKeyCreate(msgKey)
+//   ])
+
+//   cb(null, {
+//     outputKey: outputPub
+//   })
+// }
+
+// function getSigPubKey (obj) {
+//   // unsafe: no guarantee this key was used to create signature
+//   return proto.schema.Signature.decode(obj[SIG]).sigPubKey.value
+// }
+
+function getSigKey (opts) {
+  typeforce({
+    object: typeforce.Object
+  }, opts)
+
+  const object = opts.object
+  const sig = object[SIG]
+  // necessary step to make sure key encoded
+  // in signature is that key used to sign
+  const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
+  return utils.getSigKey(merkleRoot, sig)
+}
+
+/**
+ * validate object sequence
+ * @param  {[type]} object     [description]
+ * @param  {[type]} prev       [description]
+ * @param  {[type]} merkleOpts [description]
+ * @return {[type]}            [description]
+ */
+function validateVersioning (opts) {
+  const object = opts.object
+  const prev = opts.prev
+  if (object[PREV] || prev) {
+    if (object[PREV] && !prev) {
+      throw new Error('expected "prev"')
     }
 
-    if (!object[PREV] && opts.prevVersion) {
+    if (!object[PREV] && prev) {
       throw new Error(`object missing property "${PREV}"`)
     }
 
-    const expectedPrev = toMerkleRoot(opts.prevVersion, getMerkleOpts(opts))
+    const expectedPrev = Buffer.isBuffer(prev) ? prev : getLink(prev)
     if (!object[PREV].equals(expectedPrev)) {
-      throw new Error(`object[${PREV}] and "prevVersion" don't match`)
+      throw new Error(`object[${PREV}] and "prev" don't match`)
     }
   }
 
-  if (object[PREV_TO_SENDER] || opts.prevObjectFromSender) {
-    if (object[PREV_TO_SENDER] && !opts.prevObjectFromSender) {
-      throw new Error('expected "prevObjectFromSender"')
+  const orig = opts.orig
+  if (object[ORIG] || orig) {
+    if (object[ORIG] && !orig) {
+      throw new Error('expected "orig"')
     }
 
-    if (!object[PREV_TO_SENDER] && opts.prevObjectFromSender) {
-      throw new Error(`object missing property "${PREV_TO_SENDER}"`)
+    if (!object[ORIG] && orig) {
+      throw new Error(`object missing property "${ORIG}"`)
     }
 
-    const expectedPrev = toMerkleRoot(opts.prevObjectFromSender, getMerkleOpts(opts))
-    if (!object[PREV_TO_SENDER].equals(expectedPrev)) {
-      throw new Error(`object[${PREV_TO_SENDER}] and "prevObjectFromSender" don't match`)
+    const expectedOrig = Buffer.isBuffer(orig) ? orig : getLink(orig)
+    if (!object[ORIG].equals(expectedOrig)) {
+      throw new Error(`object[${ORIG}] and "orig" don't match`)
     }
   }
 }
@@ -257,13 +366,15 @@ function createMerkleTree (obj, opts) {
     opts = null
   }
 
+  if (obj[SIG]) throw new Error('merkle tree should not include signature')
+
   const gen = merkleGenerator(getMerkleOpts(opts))
 
   // list with flat-tree indices
   const nodes = []
   const keys = getKeys(obj)
   keys.forEach(function (key, i) {
-    gen.next(key, nodes)
+    gen.next(stringify(key), nodes)
     gen.next(stringify(obj[key]), nodes)
   })
 
@@ -432,7 +543,7 @@ function computeMerkleRoot (obj, opts) {
 function toMerkleRoot (merkleRootOrObj, opts) {
   return Buffer.isBuffer(merkleRootOrObj)
     ? merkleRootOrObj
-    : computeMerkleRoot(merkleRootOrObj, opts)
+    : computeMerkleRoot(getBody(merkleRootOrObj), opts)
 }
 
 function getSigData (sigInput) {
@@ -455,17 +566,71 @@ function toPrivateKey (priv) {
 }
 
 function getHeader (obj) {
-  return utils.pick(obj, SIG)
+  if (!obj[SIG]) throw new Error('object must be signed')
+
+  return utils.pick(obj, HEADER_PROPS)
 }
 
-function getRef (obj) {
+function getBody (obj) {
+  return utils.omit(obj, HEADER_PROPS)
+}
+
+function getLink (obj) {
   if (Buffer.isBuffer(obj)) return obj
 
   const header = getHeader(obj)
   return sha256(stringify(header))
 }
 
+function keyFromLink (link) {
+  return toPrivateKey(link)
+}
+
+function pubKeyFromLink (link) {
+  return secp256k1.publicKeyCreate(keyFromLink(link))
+}
+
+function pubKeyFromObject (object) {
+  return pubKeyFromLink(getLink(object))
+}
+
+// function getPrevLink (objectOrLink) {
+//   const prev = Buffer.isBuffer(object) ? objectOrLink : object[PREV]
+//   return prev && sha256(prev)
+// }
+
+function getSealedPrevLink (object) {
+  const prevLink = Buffer.isBuffer(object) ? object : object[PREV]
+
+  typeforce(typeforce.Buffer, prevLink)
+  return sha256(prevLink)
+}
+
+function getPrevMessageLink (prevMsg) {
+  typeforce(typeforce.Buffer, prevMsg[SIG])
+  return sha256(prevMsg[SIG])
+}
+
+function getMsgSigData (opts) {
+  return sha256(
+    Buffer.concat([
+      opts.object[SIG],
+      opts.senderPubKey,
+      opts.recipientPubKey
+    ])
+  )
+}
+
 // function merkleSignMerkle (data, key, merkleOpts, cb) {
 //   const shareMerkleRoot = computeMerkleRoot(share, merkleOpts)
 //   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
 // }
+
+function newKey () {
+  let key
+  do {
+    key = crypto.randomBytes(32)
+  } while (!secp256k1.privateKeyVerify(key))
+
+  return key
+}

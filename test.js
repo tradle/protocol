@@ -1,3 +1,4 @@
+'use strict'
 
 const crypto = require('crypto')
 const typeforce = require('typeforce')
@@ -9,24 +10,13 @@ const protocol = require('./')
 const types = require('./lib/types')
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
+// const keys = require('./fixtures.json').ecKeys.map(function (key) {
+//   return new Buffer(key, 'hex')
+// })
+
 const SIG = constants.SIG
 const PREV = constants.PREV_HASH
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
-
-const alice = {
-  chainKey: new Buffer('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex'),
-  sigKey: new Buffer('1987cf92acb0fa32232631826c3e7386a853bc1b0f8233903f17990c70f09096', 'hex')
-}
-
-const bob = {
-  chainKey: new Buffer('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex'),
-  sigKey: new Buffer('27572001fe781aa04794fd2bab787edcda182dddf1e4331d2aef6fb88cb73812', 'hex')
-}
-
-const carol = {
-  chainKey: new Buffer('37fe7e4ba51b148261c4a13378e7825c8e7912b38318f8e55e42fbfe31bb8a1a', 'hex'),
-  sigKey: new Buffer('a9d929bae0eee133965398322fb6db8e9285a1cd1c01b1cbc69d2390b433bc41', 'hex')
-}
 
 // test('encode, decode', function (t) {
 //   var obj = {
@@ -79,176 +69,251 @@ const carol = {
 
 // })
 
+test('primitives', function (t) {
+  const rawV1 = {
+    a: 1,
+    b: 2
+  }
+
+  const v1 = protocol.object({ object: rawV1 })
+  t.same(v1, rawV1)
+
+  const v1MerkleRoot = protocol.merkleRoot(v1)
+  t.same(v1MerkleRoot, new Buffer('53a9e941e2ba647d7360fdc9a957cbe3780efa3ad2092fbd58936c79b34ca9c8', 'hex'))
+  t.end()
+})
+
 test('bob sends, alice receives, carol audits', function (t) {
   var obj = {
     a: 1,
     b: 2
   }
 
-  // bob sends
-  protocol.send({
-    sender: {
-      sigPubKey: privToPub(bob.sigKey),
-      sign: function (merkleRoot, cb) {
-        cb(null, utils.sign(merkleRoot, bob.sigKey))
-      }
-    },
-    recipient: {
-      pubKey: privToPub(alice.chainKey),
-      ref: new Buffer('alice')
-    },
-    object: obj
-  }, function (err, sendRes) {
+  const people = newPeople(3)
+  const alice = people[0]
+  const bob = people[1]
+  const carol = people[2]
+
+  protocol.sign({
+    object: obj,
+    sender: bob.sender
+  }, function (err, result) {
     if (err) throw err
 
-    t.doesNotThrow(function () {
-      typeforce({
-        objectInfo: typeforce.Object,
-        shareInfo: typeforce.Object,
-        outputKey: typeforce.Buffer
-      }, sendRes)
-    })
+    t.ok(Buffer.isBuffer(result.object[SIG]))
 
-    // alice receives
-    protocol.receive({
-      object: sendRes.objectInfo.object,
-      share: sendRes.shareInfo.object
-    }, function (err, receiveRes) {
+    // bob sends
+    protocol.createMessage({
+      sender: bob.sender,
+      recipientPubKey: alice.sigKey.pub,
+      object: result.object
+    }, function (err, msg) {
       if (err) throw err
 
-
-      t.same(sendRes.outputKey, receiveRes.outputKey, 'alice and bob derive same per-message key')
-      // t.notOk(sendRes.outputKey.priv, 'bob only has per-message public key')
-      // t.ok(receiveRes.outputKey.priv, 'alice has per-message private key')
-
-      // carol audits, knowing
-      protocol.receive({
-        object: obj,
-        share: sendRes.shareInfo.object
-      }, function (err, processed) {
-        if (err) throw err
-
-        t.same(processed.outputKey, receiveRes.outputKey, 'carol derives same per-message key')
-        // t.notOk(processed.outputKey.priv, 'carol does not have per-message private key')
-        t.end()
+      t.doesNotThrow(function () {
+        typeforce({
+          object: typeforce.Object,
+          [SIG]: typeforce.Buffer
+        }, msg)
       })
+
+      // alice receives
+      t.doesNotThrow(function () {
+        protocol.validateMessage({
+          senderPubKey: bob.sigKey.pub,
+          recipientPubKey: alice.sigKey.pub,
+          message: msg
+        })
+      })
+
+      t.throws(function () {
+        protocol.validateMessage({
+          senderPubKey: alice.sigKey.pub,
+          recipientPubKey: bob.sigKey.pub,
+          message: msg
+        })
+      })
+
+      t.end()
     })
   })
 })
 
-test('sequence', function (t) {
+test('seals', function (t) {
+  const rawV1 = {
+    a: 1,
+    b: 2
+  }
+
+  const people = newPeople(3)
+  const alice = people[0]
+  const bob = people[1]
+
+  const v1 = protocol.object({ object: rawV1 })
+  t.throws(function () {
+    let sealPubKey = protocol.sealPubKey({
+      object: v1,
+      basePubKey: bob.sigKey.pub
+    })
+  }, /signed/)
+
+  protocol.sign({
+    object: v1,
+    sender: bob.sender
+  }, function (err) {
+    if (err) throw err
+
+    let sealPubKey = protocol.sealPubKey({
+      object: v1,
+      basePubKey: bob.sigKey.pub
+    })
+
+    t.ok(protocol.verifySealPubKey({
+      object: v1,
+      basePubKey: bob.sigKey.pub,
+      sealPubKey: sealPubKey
+    }))
+
+    t.notOk(protocol.verifySealPubKey({
+      object: v1,
+      basePubKey: alice.sigKey.pub,
+      sealPubKey: sealPubKey
+    }))
+
+    t.end()
+  })
+})
+
+test('validateVersioning', function (t) {
   var v1 = {
     a: 1,
     b: 2
   }
 
-  var v1merkleRoot = protocol.merkleRoot(v1)
-  t.doesNotThrow(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV]: v1merkleRoot
-      },
-      {
-        prevVersion: v1
-      }
-    )
-  })
+  const bob = newPerson()
+  protocol.sign({
+    object: v1,
+    sender: bob.sender
+  }, function (err) {
+    if (err) throw err
 
-  t.doesNotThrow(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV_TO_SENDER]: v1merkleRoot
-      },
-      {
-        prevObjectFromSender: v1
-      }
-    )
-  })
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          a: 2,
+          b: 2
+        },
+        prev: v1
+      })
+    })
 
-  t.doesNotThrow(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV]: v1merkleRoot,
-        [PREV_TO_SENDER]: v1merkleRoot
-      },
-      {
-        prevVersion: v1,
-        prevObjectFromSender: v1
-      }
-    )
-  })
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          a: 2,
+          b: 2,
+          [PREV]: crypto.randomBytes(32)
+        },
+        prev: v1
+      })
+    })
 
-  t.throws(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-      },
-      {
-        prevVersion: v1,
-      }
-    )
-  })
+    t.doesNotThrow(function () {
+      protocol.validateVersioning({
+        object: {
+          a: 2,
+          b: 2,
+          [PREV]: protocol.link(v1)
+        },
+        prev: v1
+      })
+    })
 
-  t.throws(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-      },
-      {
-        prevVersion: v1,
-        prevObjectFromSender: v1
-      }
-    )
+    t.end()
   })
-
-  t.throws(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV]: v1merkleRoot,
-      },
-      {}
-    )
-  })
-
-  t.throws(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV_TO_SENDER]: v1merkleRoot
-      },
-      {}
-    )
-  })
-
-  t.throws(function () {
-    protocol.validateSequence(
-      {
-        a: 2,
-        b: 2,
-        [PREV]: v1merkleRoot,
-        [PREV_TO_SENDER]: v1merkleRoot
-      },
-      {
-        prevVersion: crypto.randomBytes(32),
-        prevObjectFromSender: v1
-      }
-    )
-  })
-
-  t.end()
 })
 
+test('versioning', function (t) {
+  const v1 = {
+    a: 1,
+    b: 2
+  }
+
+  const people = newPeople(3)
+  const alice = people[0]
+  const bob = people[1]
+  const carol = people[2]
+
+  protocol.sign({
+    object: v1,
+    sender: bob.sender
+  }, function (err) {
+    if (err) throw err
+
+    protocol.validateObject({
+      object: v1,
+      senderPubKey: bob.sigKey.pub
+    })
+
+    const v2 = protocol.object({
+      object: {
+        a: 1,
+        b: 2,
+        c: 3
+      },
+      prev: v1,
+      orig: v1
+    })
+
+    protocol.sign({
+      object: v2,
+      sender: bob.sender
+    }, function (err) {
+      if (err) throw err
+
+      t.throws(function () {
+        protocol.validateObject({
+          object: v2,
+          senderPubKey: bob.sigKey.pub
+        })
+      }, /prev/)
+
+      t.throws(function () {
+        protocol.validateObject({
+          object: v2,
+          senderPubKey: bob.sigKey.pub,
+          prev: v1
+        })
+      }, /orig/)
+
+      t.throws(function () {
+        v2 = utils.omit(v2, PREV)
+        protocol.validateObject({
+          object: v2,
+          senderPubKey: bob.sigKey.pub
+        })
+      })
+
+      t.doesNotThrow(function () {
+        protocol.validateObject({
+          object: v2,
+          senderPubKey: bob.sigKey.pub,
+          prev: v1,
+          orig: v1
+        })
+      }, /orig/)
+
+      const v3 = protocol.object({
+        object: v2,
+        prev: v1,
+        orig: v1
+      })
+
+      t.end()
+    })
+  })
+
+})
 
 test('prove, verify', function (t) {
   const msg = {
@@ -334,4 +399,41 @@ function sha256 (data) {
 
 function privToPub (key) {
   return secp256k1.publicKeyCreate(key)
+}
+
+function newPerson () {
+  var person = {
+    chainKey: {
+      priv: protocol.genPrivateKey()
+    },
+    sigKey: {
+      priv: protocol.genPrivateKey()
+    },
+    link: crypto.randomBytes(32)
+  }
+
+  person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
+  person.sigKey.pub = secp256k1.publicKeyCreate(person.sigKey.priv)
+  person.sender = {
+    sigPubKey: person.sigKey.pub,
+    sign: function (merkleRoot, cb) {
+      cb(null, utils.sign(merkleRoot, person.sigKey.priv))
+    }
+  }
+
+  person.recipient = {
+    pubKey: person.sigKey.pub,
+    link: person.link
+  }
+
+  return person
+}
+
+function newPeople (n) {
+  const people = []
+  for (var i = 0; i < n; i++) {
+    people.push(newPerson())
+  }
+
+  return people
 }
