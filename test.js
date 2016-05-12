@@ -105,13 +105,16 @@ test('bob sends, alice receives, carol audits', function (t) {
     // bob sends
     protocol.createMessage({
       sender: bob.sender,
-      recipientPubKey: alice.sigKey.pub,
+      recipientPubKey: alice.sigPubKey,
       object: result.object
-    }, function (err, msg) {
+    }, function (err, result) {
       if (err) throw err
 
+      const msg = result.object
       t.doesNotThrow(function () {
         typeforce({
+          senderPubKey: types.ecPubKey,
+          recipientPubKey: types.ecPubKey,
           object: typeforce.Object,
           [SIG]: typeforce.Buffer
         }, msg)
@@ -120,16 +123,16 @@ test('bob sends, alice receives, carol audits', function (t) {
       // alice receives
       t.doesNotThrow(function () {
         protocol.validateMessage({
-          senderPubKey: bob.sigKey.pub,
-          recipientPubKey: alice.sigKey.pub,
+          senderPubKey: bob.sigPubKey,
+          recipientPubKey: alice.sigPubKey,
           message: msg
         })
       })
 
       t.throws(function () {
         protocol.validateMessage({
-          senderPubKey: alice.sigKey.pub,
-          recipientPubKey: bob.sigKey.pub,
+          senderPubKey: alice.sigPubKey,
+          recipientPubKey: bob.sigPubKey,
           message: msg
         })
       })
@@ -153,7 +156,7 @@ test('seals', function (t) {
   t.throws(function () {
     let sealPubKey = protocol.sealPubKey({
       object: v1,
-      basePubKey: bob.sigKey.pub
+      basePubKey: alice.chainPubKey
     })
   }, /signed/)
 
@@ -165,18 +168,18 @@ test('seals', function (t) {
 
     let sealPubKey = protocol.sealPubKey({
       object: v1,
-      basePubKey: bob.sigKey.pub
+      basePubKey: alice.chainPubKey
     })
 
     t.ok(protocol.verifySealPubKey({
       object: v1,
-      basePubKey: bob.sigKey.pub,
+      basePubKey: alice.chainPubKey,
       sealPubKey: sealPubKey
     }))
 
     t.notOk(protocol.verifySealPubKey({
       object: v1,
-      basePubKey: alice.sigKey.pub,
+      basePubKey: bob.chainPubKey,
       sealPubKey: sealPubKey
     }))
 
@@ -252,7 +255,7 @@ test('versioning', function (t) {
 
     protocol.validateObject({
       object: v1,
-      senderPubKey: bob.sigKey.pub
+      senderPubKey: bob.sigPubKey
     })
 
     const v2 = protocol.object({
@@ -274,14 +277,14 @@ test('versioning', function (t) {
       t.throws(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigKey.pub
+          senderPubKey: bob.sigPubKey
         })
       }, /prev/)
 
       t.throws(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigKey.pub,
+          senderPubKey: bob.sigPubKey,
           prev: v1
         })
       }, /orig/)
@@ -290,14 +293,14 @@ test('versioning', function (t) {
         v2 = utils.omit(v2, PREV)
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigKey.pub
+          senderPubKey: bob.sigPubKey
         })
       })
 
       t.doesNotThrow(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigKey.pub,
+          senderPubKey: bob.sigPubKey,
           prev: v1,
           orig: v1
         })
@@ -403,26 +406,25 @@ function privToPub (key) {
 
 function newPerson () {
   var person = {
-    chainKey: {
-      priv: protocol.genPrivateKey()
-    },
-    sigKey: {
-      priv: protocol.genPrivateKey()
-    },
+    chainKey: protocol.genECKey(),
+    sigKey: protocol.genECKey('p256'),
     link: crypto.randomBytes(32)
   }
 
-  person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
-  person.sigKey.pub = secp256k1.publicKeyCreate(person.sigKey.priv)
+  person.sigPubKey = utils.omit(person.sigKey, 'priv')
+  person.chainPubKey = utils.omit(person.chainKey, 'priv')
+
+  // person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
+  // person.sigPubKey = secp256k1.publicKeyCreate(person.sigKey.priv)
   person.sender = {
-    sigPubKey: person.sigKey.pub,
+    sigPubKey: utils.omit(person.sigKey, 'priv'),
     sign: function (merkleRoot, cb) {
-      cb(null, utils.sign(merkleRoot, person.sigKey.priv))
+      cb(null, utils.sign(merkleRoot, person.sigKey))
     }
   }
 
   person.recipient = {
-    pubKey: person.sigKey.pub,
+    pubKey: person.sigPubKey,
     link: person.link
   }
 

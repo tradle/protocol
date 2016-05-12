@@ -14,6 +14,7 @@ const parallel = require('run-parallel')
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
+const DEFAULT_CURVE = 'secp256k1'
 const SIG = constants.SIG
 const TYPE = constants.TYPE
 const PREV = constants.PREV_HASH
@@ -31,6 +32,7 @@ const DEFAULT_MERKLE_OPTS = {
 
 module.exports = {
   types: types,
+  stringify: stringify,
   merkleHash: sha256,
   secp256k1: secp256k1,
   tree: createMerkleTree,
@@ -57,7 +59,9 @@ module.exports = {
   // prevLink: getPrevLink,
   header: getHeader,
   body: getBody,
-  genPrivateKey: newKey
+  serializeMessage: serializeMessage,
+  unserializeMessage: unserializeMessage,
+  genECKey: utils.genECKey
 }
 
 function createObject (opts) {
@@ -80,15 +84,9 @@ function createObject (opts) {
   return obj
 }
 
-// function share (opts, cb) {
-//   typeforce({
-
-//   }, opts)
-// }
-
 function createMessage (opts, cb) {
   typeforce({
-    recipientPubKey: typeforce.Buffer,
+    recipientPubKey: types.ecPubKey,
     sender: types.sender,
     object: typeforce.Object,
     prev: typeforce.maybe(typeforce.Object)
@@ -97,46 +95,47 @@ function createMessage (opts, cb) {
   const object = opts.object
   if (!object[SIG]) throw new Error('object must be signed')
 
-  cb = utils.asyncify(cb)
-  const msgSigData = getMsgSigData({
+  const raw = {
     senderPubKey: opts.sender.sigPubKey,
     recipientPubKey: opts.recipientPubKey,
     object: opts.object
+  }
+
+  if (opts.prev) {
+    raw.prev = getLink(opts.prev)
+  }
+
+  const message = createObject({
+    object: raw
   })
 
-  doSign(opts.sender, msgSigData, function (err, sig) {
-    if (err) return cb(err)
-
-    cb(null, {
-      object: opts.object,
-      [SIG]: sig,
-      [PREV]: opts.prev ? getPrevMessageLink(opts.prev) : null
-    })
-  })
+  merkleAndSign({
+    object: message,
+    sender: opts.sender
+  }, cb)
 }
 
 function validateMessage (opts, cb) {
   typeforce({
     // roles reversed from createMessage
-    senderPubKey: typeforce.Buffer,
-    recipientPubKey: typeforce.Buffer,
+    senderPubKey: types.ecPubKey,
+    recipientPubKey: types.ecPubKey,
     message: typeforce.Object,
     prev: typeforce.maybe(typeforce.Object)
   }, opts)
 
-  const message = opts.message
-  if (!message[SIG]) throw new Error('object must be signed')
-
-  const msgSigData = getMsgSigData({
-    senderPubKey: opts.senderPubKey,
-    recipientPubKey: opts.recipientPubKey,
-    object: message.object
+  validateObject({
+    object: opts.message,
+    senderPubKey: opts.senderPubKey
   })
 
-  const sigPubKey = utils.getSigKey(msgSigData, message[SIG])
-  if (!sigPubKey || !sigPubKey.value.equals(opts.senderPubKey)) {
-    throw new Error('signature did not match public key')
-  }
+  const message = opts.message
+  // if (!message[SIG]) throw new Error('object must be signed')
+
+  // const sigPubKey = utils.getSigKey(msgSigData, message[SIG])
+  // if (!sigPubKey || !sigPubKey.value.equals(opts.senderPubKey)) {
+  //   throw new Error('signature did not match public key')
+  // }
 
   if (message[PREV] || opts.prev) {
     if (message[PREV] && !opts.prev) {
@@ -147,7 +146,7 @@ function validateMessage (opts, cb) {
       throw new Error(`message missing property "${PREV}"`)
     }
 
-    const expectedPrev = getPrevMessageLink(opts.prev)
+    const expectedPrev = getLink(opts.prev)
     if (!message[PREV].equals(expectedPrev)) {
       throw new Error(`object[${PREV}] and "prev" don't match`)
     }
@@ -191,11 +190,8 @@ function doSign (sender, data, cb) {
   sender.sign(data, function (err, sig) {
     if (err) return cb(err)
 
-    const encodedSig = proto.schema.Signature.encode({
-      sigPubKey: {
-        curve: 'secp256k1',
-        value: sender.sigPubKey
-      },
+    const encodedSig = proto.schema.ECSignature.encode({
+      pubKey: sender.sigPubKey,
       sig: sig
     })
 
@@ -208,13 +204,13 @@ function doSign (sender, data, cb) {
  */
 function calcSealPubKey (opts) {
   typeforce({
-    basePubKey: typeforce.Buffer,
+    basePubKey: types.chainPubKey,
     object: typeforce.maybe(typeforce.Object),
     link: typeforce.maybe(typeforce.Buffer)
   }, opts, true)
 
   const link = opts.link || getLink(opts.object)
-  return secp256k1.publicKeyCombine([
+  return utils.publicKeyCombine([
     opts.basePubKey,
     pubKeyFromLink(link)
   ])
@@ -222,12 +218,12 @@ function calcSealPubKey (opts) {
 
 function calcSealPrevPubKey (opts) {
   typeforce({
-    basePubKey: typeforce.Buffer,
+    basePubKey: types.chainPubKey,
     object: typeforce.maybe(typeforce.Object)
   }, opts, true)
 
   const link = getSealedPrevLink(opts.object)
-  return secp256k1.publicKeyCombine([
+  return utils.publicKeyCombine([
     opts.basePubKey,
     pubKeyFromLink(link)
   ])
@@ -236,28 +232,28 @@ function calcSealPrevPubKey (opts) {
 function verifySealPubKey (opts) {
   typeforce({
     object: typeforce.Object,
-    basePubKey: typeforce.Buffer,
-    sealPubKey: typeforce.Buffer
+    basePubKey: types.chainPubKey,
+    sealPubKey: types.chainPubKey
   }, opts)
 
   const object = opts.object
   if (!object[SIG]) throw new Error('object must be signed')
 
-  const expected = secp256k1.publicKeyCombine([
+  const expected = utils.publicKeyCombine([
     opts.basePubKey,
     pubKeyFromObject(object)
   ])
 
-  return expected.equals(opts.sealPubKey)
+  return utils.pubKeysAreEqual(expected, opts.sealPubKey)
 }
 
 function verifySealPrevPubKey (opts) {
   typeforce({
-    sealPubKey: typeforce.Buffer
+    sealPubKey: types.chainPubKey
   }, opts)
 
   const expected = calcSealPrevPubKey(opts)
-  return expected.equals(opts.sealPubKey)
+  return utils.pubKeysAreEqual(expected, opts.sealPubKey)
 }
 
 /**
@@ -270,12 +266,12 @@ function verifySealPrevPubKey (opts) {
 function validateObject (opts, cb) {
   typeforce({
     object: typeforce.Object,
-    senderPubKey: typeforce.Buffer
+    senderPubKey: types.ecPubKey
   }, opts)
 
   validateVersioning(opts)
   const okey = getSigKey(opts)
-  if (!okey || !okey.value.equals(opts.senderPubKey)) {
+  if (!okey || !utils.pubKeysAreEqual(okey, opts.senderPubKey)) {
     throw new Error('bad signature')
   }
 
@@ -459,17 +455,17 @@ function concatSha256 (a, b) {
   return crypto.createHash('sha256').update(a).update(b).digest()
 }
 
-function importPriv (key, curve) {
-  return typeof key === 'string'
-    ? curve.keyFromPrivate(key)
-    : key
-}
+// function importPriv (key, curve) {
+//   return typeof key === 'string'
+//     ? curve.keyFromPrivate(key)
+//     : key
+// }
 
-function importPub (key, curve) {
-  return typeof key === 'string'
-    ? curve.keyFromPublic(key)
-    : key
-}
+// function importPub (key, curve) {
+//   return typeof key === 'string'
+//     ? curve.keyFromPublic(key)
+//     : key
+// }
 
 function alphabetical (a, b) {
   const al = a.toLowerCase()
@@ -568,7 +564,15 @@ function toPrivateKey (priv) {
 function getHeader (obj) {
   if (!obj[SIG]) throw new Error('object must be signed')
 
-  return utils.pick(obj, HEADER_PROPS)
+  const header = utils.pick(obj, HEADER_PROPS)
+  for (let p in header) {
+    const val = header[p]
+    if (Buffer.isBuffer(val)) {
+      header[p] = val.toString('base64')
+    }
+  }
+
+  return header
 }
 
 function getBody (obj) {
@@ -587,7 +591,10 @@ function keyFromLink (link) {
 }
 
 function pubKeyFromLink (link) {
-  return secp256k1.publicKeyCreate(keyFromLink(link))
+  return {
+    curve: 'secp256k1',
+    pub: secp256k1.publicKeyCreate(keyFromLink(link))
+  }
 }
 
 function pubKeyFromObject (object) {
@@ -606,31 +613,30 @@ function getSealedPrevLink (object) {
   return sha256(prevLink)
 }
 
-function getPrevMessageLink (prevMsg) {
-  typeforce(typeforce.Buffer, prevMsg[SIG])
-  return sha256(prevMsg[SIG])
-}
+// function getPrevMessageLink (prevMsg) {
+//   typeforce(typeforce.Buffer, prevMsg[SIG])
+//   return sha256(prevMsg[SIG])
+// }
 
-function getMsgSigData (opts) {
-  return sha256(
-    Buffer.concat([
-      opts.object[SIG],
-      opts.senderPubKey,
-      opts.recipientPubKey
-    ])
-  )
-}
+// function getMsgSigData (opts) {
+//   return sha256(
+//     Buffer.concat([
+//       opts.object[SIG],
+//       opts.senderPubKey,
+//       opts.recipientPubKey
+//     ])
+//   )
+// }
 
 // function merkleSignMerkle (data, key, merkleOpts, cb) {
 //   const shareMerkleRoot = computeMerkleRoot(share, merkleOpts)
 //   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
 // }
 
-function newKey () {
-  let key
-  do {
-    key = crypto.randomBytes(32)
-  } while (!secp256k1.privateKeyVerify(key))
+function serializeMessage (msg) {
+  return proto.Message.encode(msg)
+}
 
-  return key
+function unserializeMessage (msg) {
+  return proto.Message.decode(msg)
 }

@@ -47,3 +47,54 @@ const b = protocol.receive({
 
 // a.destKey.getPublic(true, 'hex') === b.destKey.getPublic(true, 'hex')
 ```
+
+# Objects
+
+Objects are plain JSON objects that:
+* must bear the signature of their creator (the merkle root of the object is signed)
+* if the object is not the first version:
+  * must link to the previous version of the object
+  * optionally link to the original version of the object (if it exists)
+
+## Merkle root
+
+To build a merkle tree for an object, sort the properties alphabetically, then set the leaves to be key1, value1, key2, value2, etc.
+
+## Object headers
+
+Properties in an object header are omitted from the merkle tree. Header properties include:
+  * signature
+
+# Messages
+
+Messages are objects as described above, with the following properties:
+* object: another object
+* sender: sender pub key
+* recipient: recipient pub key
+* prev: link to previous message to this recipient
+
+# Links
+
+A link to an object is the sha256 hash of its stringified header, currently:
+
+```json
+var header = {
+  // merkle root of tree described above
+  _s: sign(merkle_root(object))
+}
+```
+
+# Seals
+
+Seals are public keys that are created as combination of a blockchain transaction creator's known public key and an object:
+
+  p1 = link // private key derived from object link
+  P1 = ec_point(p1)
+  P2 = transaction creator pub key
+
+  Seal pub key = P1 + P2
+
+When a version of an object is created, two seals are created, one for the current version, and one linking to the previous. The seal pub key for the previous is calculated slightly differently so that it doesn't end up being identical to the previous version's:
+
+  p1 = sha256(prev_version_link)
+  ... // same as above
