@@ -27,7 +27,7 @@ const DEFAULT_MERKLE_OPTS = {
   },
   parent: function (a, b) {
     return concatSha256(a.hash, b.hash)
-  },
+  }
 }
 
 module.exports = {
@@ -43,7 +43,7 @@ module.exports = {
   verifySealPubKey: verifySealPubKey,
   verifySealPrevPubKey: verifySealPrevPubKey,
   sign: merkleAndSign,
-  createMessage: createMessage,
+  message: createMessage,
   validateMessage: validateMessage,
   // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
@@ -56,6 +56,7 @@ module.exports = {
   indices: getIndices,
   proto: proto,
   link: getLink,
+  prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
   header: getHeader,
   body: getBody,
@@ -115,7 +116,7 @@ function createMessage (opts, cb) {
   }, cb)
 }
 
-function validateMessage (opts, cb) {
+function validateMessage (opts) {
   typeforce({
     // roles reversed from createMessage
     senderPubKey: types.ecPubKey,
@@ -169,7 +170,7 @@ function merkleAndSign (opts, cb) {
   doSign(opts.sender, merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
-    object[SIG] = sig
+    object[SIG] = utils.sigToString(sig)
     onsigned()
   })
 
@@ -274,32 +275,7 @@ function validateObject (opts, cb) {
   if (!okey || !utils.pubKeysAreEqual(okey, opts.senderPubKey)) {
     throw new Error('bad signature')
   }
-
-  // if (!okey || !okey.value.equals(opts.senderPubKey)) {
-  //   return cb(new Error('object has bad signature'))
-  // }
-
-  // cb()
 }
-
-// function calcKey () {
-//   const shareSig = share[SIG]
-//   const keyData = getKeyInputData({ sig: shareSig })
-//   const msgKey = toPrivateKey(keyData)
-//   const outputPub = secp256k1.publicKeyCombine([
-//     share.recipient.pubKey,
-//     secp256k1.publicKeyCreate(msgKey)
-//   ])
-
-//   cb(null, {
-//     outputKey: outputPub
-//   })
-// }
-
-// function getSigPubKey (obj) {
-//   // unsafe: no guarantee this key was used to create signature
-//   return proto.schema.Signature.decode(obj[SIG]).sigPubKey.value
-// }
 
 function getSigKey (opts) {
   typeforce({
@@ -307,7 +283,7 @@ function getSigKey (opts) {
   }, opts)
 
   const object = opts.object
-  const sig = object[SIG]
+  const sig = utils.sigFromString(object[SIG])
   // necessary step to make sure key encoded
   // in signature is that key used to sign
   const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
@@ -608,6 +584,7 @@ function pubKeyFromObject (object) {
 
 function getSealedPrevLink (object) {
   const prevLink = Buffer.isBuffer(object) ? object : object[PREV]
+  if (!prevLink) return
 
   typeforce(typeforce.Buffer, prevLink)
   return sha256(prevLink)

@@ -100,10 +100,10 @@ test('bob sends, alice receives, carol audits', function (t) {
   }, function (err, result) {
     if (err) throw err
 
-    t.ok(Buffer.isBuffer(result.object[SIG]))
+    t.ok(typeof result.object[SIG] === 'string')
 
     // bob sends
-    protocol.createMessage({
+    protocol.message({
       sender: bob.sender,
       recipientPubKey: alice.sigPubKey,
       object: result.object
@@ -116,7 +116,7 @@ test('bob sends, alice receives, carol audits', function (t) {
           senderPubKey: types.ecPubKey,
           recipientPubKey: types.ecPubKey,
           object: typeforce.Object,
-          [SIG]: typeforce.Buffer
+          [SIG]: typeforce.String
         }, msg)
       })
 
