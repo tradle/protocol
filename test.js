@@ -5,8 +5,8 @@ const typeforce = require('typeforce')
 const test = require('tape')
 const extend = require('xtend')
 const secp256k1 = require('secp256k1')
-const constants = require('@tradle/constants')
 const protocol = require('./')
+const constants = require('./lib/constants')
 const types = require('./lib/types')
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
@@ -15,7 +15,7 @@ const utils = require('./lib/utils')
 // })
 
 const SIG = constants.SIG
-const PREV = constants.PREV_HASH
+const PREV = constants.PREVLINK
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 
 // test('encode, decode', function (t) {
@@ -96,7 +96,7 @@ test('bob sends, alice receives, carol audits', function (t) {
 
   protocol.sign({
     object: obj,
-    sender: bob.sender
+    author: bob.author
   }, function (err, result) {
     if (err) throw err
 
@@ -104,7 +104,7 @@ test('bob sends, alice receives, carol audits', function (t) {
 
     // bob sends
     protocol.message({
-      sender: bob.sender,
+      author: bob.author,
       recipientPubKey: alice.sigPubKey,
       object: result.object
     }, function (err, result) {
@@ -113,7 +113,7 @@ test('bob sends, alice receives, carol audits', function (t) {
       const msg = result.object
       t.doesNotThrow(function () {
         typeforce({
-          senderPubKey: types.ecPubKey,
+          authorPubKey: types.ecPubKey,
           recipientPubKey: types.ecPubKey,
           object: typeforce.Object,
           [SIG]: typeforce.String
@@ -123,7 +123,7 @@ test('bob sends, alice receives, carol audits', function (t) {
       // alice receives
       t.doesNotThrow(function () {
         protocol.validateMessage({
-          senderPubKey: bob.sigPubKey,
+          authorPubKey: bob.sigPubKey,
           recipientPubKey: alice.sigPubKey,
           message: msg
         })
@@ -131,7 +131,7 @@ test('bob sends, alice receives, carol audits', function (t) {
 
       t.throws(function () {
         protocol.validateMessage({
-          senderPubKey: alice.sigPubKey,
+          authorPubKey: alice.sigPubKey,
           recipientPubKey: bob.sigPubKey,
           message: msg
         })
@@ -162,7 +162,7 @@ test('seals', function (t) {
 
   protocol.sign({
     object: v1,
-    sender: bob.sender
+    author: bob.author
   }, function (err) {
     if (err) throw err
 
@@ -183,7 +183,37 @@ test('seals', function (t) {
       sealPubKey: sealPubKey
     }))
 
-    t.end()
+    const v2 = protocol.object({ object:
+      extend(v1, { c: 3 }),
+      prev: v1,
+      orig: v1
+    })
+
+    protocol.sign({
+      object: v2,
+      author: bob.author
+    }, function (err) {
+      if (err) throw err
+
+      let sealPrevPubKey = protocol.sealPrevPubKey({
+        object: v2,
+        basePubKey: alice.chainPubKey
+      })
+
+      t.ok(protocol.verifySealPrevPubKey({
+        object: v2,
+        basePubKey: alice.chainPubKey,
+        sealPrevPubKey: sealPrevPubKey
+      }))
+
+      t.notOk(protocol.verifySealPrevPubKey({
+        object: v2,
+        basePubKey: bob.chainPubKey,
+        sealPrevPubKey: sealPrevPubKey
+      }))
+
+      t.end()
+    })
   })
 })
 
@@ -196,7 +226,7 @@ test('validateVersioning', function (t) {
   const bob = newPerson()
   protocol.sign({
     object: v1,
-    sender: bob.sender
+    author: bob.author
   }, function (err) {
     if (err) throw err
 
@@ -249,13 +279,13 @@ test('versioning', function (t) {
 
   protocol.sign({
     object: v1,
-    sender: bob.sender
+    author: bob.author
   }, function (err) {
     if (err) throw err
 
     protocol.validateObject({
       object: v1,
-      senderPubKey: bob.sigPubKey
+      authorPubKey: bob.sigPubKey
     })
 
     const v2 = protocol.object({
@@ -270,21 +300,21 @@ test('versioning', function (t) {
 
     protocol.sign({
       object: v2,
-      sender: bob.sender
+      author: bob.author
     }, function (err) {
       if (err) throw err
 
       t.throws(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigPubKey
+          authorPubKey: bob.sigPubKey
         })
       }, /prev/)
 
       t.throws(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigPubKey,
+          authorPubKey: bob.sigPubKey,
           prev: v1
         })
       }, /orig/)
@@ -293,14 +323,14 @@ test('versioning', function (t) {
         v2 = utils.omit(v2, PREV)
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigPubKey
+          authorPubKey: bob.sigPubKey
         })
       })
 
       t.doesNotThrow(function () {
         protocol.validateObject({
           object: v2,
-          senderPubKey: bob.sigPubKey,
+          authorPubKey: bob.sigPubKey,
           prev: v1,
           orig: v1
         })
@@ -416,7 +446,7 @@ function newPerson () {
 
   // person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
   // person.sigPubKey = secp256k1.publicKeyCreate(person.sigKey.priv)
-  person.sender = {
+  person.author = {
     sigPubKey: utils.omit(person.sigKey, 'priv'),
     sign: function (merkleRoot, cb) {
       cb(null, utils.sign(merkleRoot, person.sigKey))
@@ -439,3 +469,9 @@ function newPeople (n) {
 
   return people
 }
+
+process.on('uncaughtException', function (err) {
+  if (err.tfError) console.log(err.tfError.stack)
+
+  throw err
+})

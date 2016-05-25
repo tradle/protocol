@@ -98,3 +98,8 @@ When a version of an object is created, two seals are created, one for the curre
 
   p1 = sha256(prev_version_link)
   ... // same as above
+
+
+# Todo
+
+decide when to check that signer of prev and current version is the same
