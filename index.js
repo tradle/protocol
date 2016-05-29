@@ -48,7 +48,7 @@ module.exports = {
   // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
   verifySig: verifySig,
-  validateObject: validateObject,
+  // validateObject: validateObject,
   validateVersioning: validateVersioning,
   prove: prove,
   prover: prover,
@@ -101,7 +101,6 @@ function createMessage (opts, cb) {
 
   const raw = {
     [TYPE]: constants.MESSAGE_TYPE,
-    authorPubKey: opts.author.sigPubKey,
     recipientPubKey: opts.recipientPubKey,
     object: opts.object
   }
@@ -122,26 +121,11 @@ function createMessage (opts, cb) {
 
 function validateMessage (opts) {
   typeforce({
-    // roles reversed from createMessage
-    authorPubKey: types.ecPubKey,
-    recipientPubKey: types.ecPubKey,
     message: typeforce.Object,
     prev: typeforce.maybe(typeforce.Object)
   }, opts)
 
-  validateObject({
-    object: opts.message,
-    authorPubKey: opts.authorPubKey
-  })
-
   const message = opts.message
-  // if (!message[SIG]) throw new Error('object must be signed')
-
-  // const sigPubKey = utils.getSigKey(msgSigData, message[SIG])
-  // if (!sigPubKey || !sigPubKey.value.equals(opts.authorPubKey)) {
-  //   throw new Error('signature did not match public key')
-  // }
-
   if (message[PREV] || opts.prev) {
     if (message[PREV] && !opts.prev) {
       throw new Error('expected "prev"')
@@ -156,6 +140,8 @@ function validateMessage (opts) {
       throw new Error(`object[${PREV}] and "prev" don't match`)
     }
   }
+
+  // return validateObject({ object: opts.message })
 }
 
 function merkleAndSign (opts, cb) {
@@ -259,18 +245,16 @@ function verifySealPrevPubKey (opts) {
  * @param  {Object}   opts
  * @param  {Function} cb(?Error)
  */
-function validateObject (opts, cb) {
-  typeforce({
-    object: typeforce.Object,
-    authorPubKey: types.ecPubKey
-  }, opts)
+// function validateObject (opts, cb) {
+//   typeforce({
+//     object: typeforce.Object
+//   }, opts)
 
-  validateVersioning(opts)
-  const okey = getSigKey(opts)
-  if (!okey || !utils.pubKeysAreEqual(okey, opts.authorPubKey)) {
-    throw new Error('bad signature')
-  }
-}
+//   validateVersioning(opts)
+//   return {
+//     sigPubKey: getSigKey(opts)
+//   }
+// }
 
 function getSigKey (opts) {
   typeforce({

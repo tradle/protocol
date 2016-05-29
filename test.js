@@ -110,33 +110,16 @@ test('bob sends, alice receives, carol audits', function (t) {
     }, function (err, result) {
       if (err) throw err
 
-      const msg = result.object
+      const message = result.object
       t.doesNotThrow(function () {
         typeforce({
-          authorPubKey: types.ecPubKey,
           recipientPubKey: types.ecPubKey,
           object: typeforce.Object,
           [SIG]: typeforce.String
-        }, msg)
+        }, message)
       })
 
-      // alice receives
-      t.doesNotThrow(function () {
-        protocol.validateMessage({
-          authorPubKey: bob.sigPubKey,
-          recipientPubKey: alice.sigPubKey,
-          message: msg
-        })
-      })
-
-      t.throws(function () {
-        protocol.validateMessage({
-          authorPubKey: alice.sigPubKey,
-          recipientPubKey: bob.sigPubKey,
-          message: msg
-        })
-      })
-
+      t.doesNotThrow(() => protocol.validateMessage({ message }))
       t.end()
     })
   })
@@ -286,10 +269,8 @@ test('versioning', function (t) {
   }, function (err) {
     if (err) throw err
 
-    protocol.validateObject({
-      object: v1,
-      authorPubKey: bob.sigPubKey
-    })
+    t.doesNotThrow(() => protocol.validateVersioning({ object: v1 }))
+    t.same(protocol.sigPubKey({ object: v1 }), bob.sigPubKey)
 
     const v2 = protocol.object({
       object: {
@@ -309,14 +290,14 @@ test('versioning', function (t) {
       if (err) throw err
 
       t.throws(function () {
-        protocol.validateObject({
+        protocol.validateVersioning({
           object: v2,
           authorPubKey: bob.sigPubKey
         })
       }, /prev/)
 
       t.throws(function () {
-        protocol.validateObject({
+        protocol.validateVersioning({
           object: v2,
           authorPubKey: bob.sigPubKey,
           prev: v1
@@ -325,14 +306,14 @@ test('versioning', function (t) {
 
       t.throws(function () {
         v2 = utils.omit(v2, PREV)
-        protocol.validateObject({
+        protocol.validateVersioning({
           object: v2,
           authorPubKey: bob.sigPubKey
         })
       })
 
       t.doesNotThrow(function () {
-        protocol.validateObject({
+        protocol.validateVersioning({
           object: v2,
           authorPubKey: bob.sigPubKey,
           prev: v1,
@@ -340,11 +321,11 @@ test('versioning', function (t) {
         })
       }, /orig/)
 
-      const v3 = protocol.object({
-        object: v2,
-        prev: v1,
-        orig: v1
-      })
+      // const v3 = protocol.object({
+      //   object: v2,
+      //   prev: v1,
+      //   orig: v1
+      // })
 
       t.end()
     })
