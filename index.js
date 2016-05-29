@@ -11,7 +11,7 @@ const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const constants = require('./lib/constants')
 const parallel = require('run-parallel')
-const proto = require('./lib/proto')
+const proto = require('./lib/proto').schema
 const utils = require('./lib/utils')
 const types = require('./lib/types')
 const DEFAULT_CURVE = 'secp256k1'
@@ -92,14 +92,15 @@ function createMessage (opts, cb) {
   typeforce({
     recipientPubKey: types.ecPubKey,
     author: types.author,
-    object: typeforce.Object,
-    prev: typeforce.maybe(typeforce.Object)
+    object: types.signedObject,
+    prev: typeforce.maybe(types.signedObject)
   }, opts)
 
   const object = opts.object
   if (!object[SIG]) throw new Error('object must be signed')
 
   const raw = {
+    [TYPE]: constants.MESSAGE_TYPE,
     authorPubKey: opts.author.sigPubKey,
     recipientPubKey: opts.recipientPubKey,
     object: opts.object
@@ -160,9 +161,10 @@ function validateMessage (opts) {
 function merkleAndSign (opts, cb) {
   typeforce({
     author: types.author,
-    object: typeforce.Object
+    object: types.rawObject
   }, opts)
 
+  const author = opts.author
   const object = opts.object
   // if (object[SIG]) throw new Error('object is already signed')
 
@@ -170,14 +172,19 @@ function merkleAndSign (opts, cb) {
   const merkleRoot = getMerkleRoot(tree)
   if (object[SIG]) return onsigned()
 
-  doSign(opts.author, merkleRoot, function (err, sig) {
+  author.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
-    object[SIG] = utils.sigToString(sig)
+    const encodedSig = proto.ECSignature.encode({
+      pubKey: author.sigPubKey,
+      sig: sig
+    })
+
+    object[SIG] = utils.sigToString(encodedSig)
     onsigned()
   })
 
-  function onsigned (err) {
+  function onsigned () {
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
@@ -185,22 +192,6 @@ function merkleAndSign (opts, cb) {
       object: object
     })
   }
-}
-
-function doSign (author, data, cb) {
-  typeforce(types.author, author)
-  typeforce(typeforce.Buffer, data)
-
-  author.sign(data, function (err, sig) {
-    if (err) return cb(err)
-
-    const encodedSig = proto.schema.ECSignature.encode({
-      pubKey: author.sigPubKey,
-      sig: sig
-    })
-
-    cb(null, encodedSig)
-  })
 }
 
 /**
@@ -287,11 +278,10 @@ function getSigKey (opts) {
   }, opts)
 
   const object = opts.object
-  const sig = utils.sigFromString(object[SIG])
   // necessary step to make sure key encoded
   // in signature is that key used to sign
   const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
-  return utils.getSigKey(merkleRoot, sig)
+  return utils.getSigKey(merkleRoot, object[SIG])
 }
 
 function verifySig (opts) {
@@ -641,9 +631,18 @@ function isLinkAlike (val) {
 // }
 
 function serializeMessage (msg) {
-  return proto.Message.encode(msg)
+  return proto.Message.encode({
+    object: new Buffer(stringify(msg.object)),
+    recipientPubKey: msg.recipientPubKey,
+    [SIG]: utils.parseSig(msg[SIG]),
+    prev: msg.prev
+  })
 }
 
 function unserializeMessage (msg) {
-  return proto.Message.decode(msg)
+  msg = proto.Message.decode(msg)
+  msg.object = JSON.parse(msg.object)
+  msg[TYPE] = constants.MESSAGE_TYPE
+  msg[SIG] = utils.sigToString(msg[SIG])
+  return msg
 }

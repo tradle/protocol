@@ -14,6 +14,7 @@ const utils = require('./lib/utils')
 //   return new Buffer(key, 'hex')
 // })
 
+const TYPE = constants.TYPE
 const SIG = constants.SIG
 const PREV = constants.PREVLINK
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
@@ -85,6 +86,7 @@ test('primitives', function (t) {
 
 test('bob sends, alice receives, carol audits', function (t) {
   var obj = {
+    [TYPE]: 'blah',
     a: 1,
     b: 2
   }
@@ -99,8 +101,6 @@ test('bob sends, alice receives, carol audits', function (t) {
     author: bob.author
   }, function (err, result) {
     if (err) throw err
-
-    t.ok(typeof result.object[SIG] === 'string')
 
     // bob sends
     protocol.message({
@@ -145,7 +145,8 @@ test('bob sends, alice receives, carol audits', function (t) {
 test('seals', function (t) {
   const rawV1 = {
     a: 1,
-    b: 2
+    b: 2,
+    [TYPE]: 'something'
   }
 
   const people = newPeople(3)
@@ -220,7 +221,8 @@ test('seals', function (t) {
 test('validateVersioning', function (t) {
   var v1 = {
     a: 1,
-    b: 2
+    b: 2,
+    [TYPE]: 'something'
   }
 
   const bob = newPerson()
@@ -269,7 +271,8 @@ test('validateVersioning', function (t) {
 test('versioning', function (t) {
   const v1 = {
     a: 1,
-    b: 2
+    b: 2,
+    [TYPE]: 'something'
   }
 
   const people = newPeople(3)
@@ -292,7 +295,8 @@ test('versioning', function (t) {
       object: {
         a: 1,
         b: 2,
-        c: 3
+        c: 3,
+        [TYPE]: 'something'
       },
       prev: v1,
       orig: v1
