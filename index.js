@@ -57,6 +57,7 @@ module.exports = {
   leaves: getLeaves,
   indices: getIndices,
   proto: proto,
+  linkString: getStringLink,
   link: getLink,
   prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
@@ -79,18 +80,18 @@ function createObject (opts) {
   // shallow copy not too safe
   const obj = getBody(opts.object)
   if (opts.prev) {
-    obj[PREV] = getLink(opts.prev)
+    obj[PREV] = getStringLink(opts.prev)
   }
 
   if (opts.orig) {
-    obj[ORIG] = getLink(opts.orig)
+    obj[ORIG] = getStringLink(opts.orig)
   }
 
   return obj
 }
 
 function nextVersion (object, link) {
-  link = link || getLink(object, 'hex')
+  link = link || getStringLink(object)
   object = clone(object)
   HEADER_PROPS.forEach(prop => delete object[prop])
   // delete object[SIG]
@@ -117,7 +118,7 @@ function createMessage (opts, cb) {
   }
 
   if (opts.prev) {
-    raw.prev = getLink(opts.prev)
+    raw.prev = getStringLink(opts.prev)
   }
 
   const message = createObject({
@@ -131,26 +132,27 @@ function createMessage (opts, cb) {
 }
 
 function validateMessage (opts) {
-  typeforce({
-    message: typeforce.Object,
-    prev: typeforce.maybe(typeforce.Object)
-  }, opts)
+  return validateVersioning(opts)
+  // typeforce({
+  //   message: typeforce.Object,
+  //   prev: typeforce.maybe(typeforce.Object)
+  // }, opts)
 
-  const message = opts.message
-  if (message[PREV] || opts.prev) {
-    if (message[PREV] && !opts.prev) {
-      throw new Error('expected "prev"')
-    }
+  // const message = opts.message
+  // if (message[PREV] || opts.prev) {
+  //   if (message[PREV] && !opts.prev) {
+  //     throw new Error('expected "prev"')
+  //   }
 
-    if (!message[PREV] && opts.prev) {
-      throw new Error(`message missing property "${PREV}"`)
-    }
+  //   if (!message[PREV] && opts.prev) {
+  //     throw new Error(`message missing property "${PREV}"`)
+  //   }
 
-    const expectedPrev = getLink(opts.prev)
-    if (!message[PREV].equals(expectedPrev)) {
-      throw new Error(`object[${PREV}] and "prev" don't match`)
-    }
-  }
+  //   const expectedPrev = getLink(opts.prev)
+  //   if (!message[PREV].equals(expectedPrev)) {
+  //     throw new Error(`object[${PREV}] and "prev" don't match`)
+  //   }
+  // }
 }
 
 function merkleAndSign (opts, cb) {

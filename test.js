@@ -17,6 +17,7 @@ const utils = require('./lib/utils')
 const TYPE = constants.TYPE
 const SIG = constants.SIG
 const PREV = constants.PREVLINK
+const ORIG = constants.PERMALINK
 const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 
 // test('encode, decode', function (t) {
@@ -72,6 +73,7 @@ const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 
 test('primitives', function (t) {
   const rawV1 = {
+    [TYPE]: 'something',
     a: 1,
     b: 2
   }
@@ -80,7 +82,7 @@ test('primitives', function (t) {
   t.same(v1, rawV1)
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('53a9e941e2ba647d7360fdc9a957cbe3780efa3ad2092fbd58936c79b34ca9c8', 'hex'))
+  t.same(v1MerkleRoot, new Buffer('1743d6658cd54a59c2fcece177f329217c14452320be8398bdc5252b9261a269','hex'))
   t.end()
 })
 
@@ -119,7 +121,7 @@ test('bob sends, alice receives, carol audits', function (t) {
         }, message)
       })
 
-      t.doesNotThrow(() => protocol.validateMessage({ message }))
+      t.doesNotThrow(() => protocol.validateMessage({ object: message }))
       t.end()
     })
   })
@@ -167,8 +169,10 @@ test('seals', function (t) {
       sealPubKey: sealPubKey
     }))
 
-    const v2 = protocol.object({ object:
-      extend(v1, { c: 3 }),
+    const rawV2 = extend(v1, { c: 3 })
+    delete rawV2[SIG]
+    const v2 = protocol.object({
+      object: rawV2,
       prev: v1,
       orig: v1
     })
@@ -241,7 +245,7 @@ test('validateVersioning', function (t) {
         object: {
           a: 2,
           b: 2,
-          [PREV]: protocol.link(v1)
+          [PREV]: protocol.linkString(v1)
         },
         prev: v1
       })
