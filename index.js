@@ -38,6 +38,7 @@ module.exports = {
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
   object: createObject,
+  nextVersion: nextVersion,
   sealPubKey: calcSealPubKey,
   sealPrevPubKey: calcSealPrevPubKey,
   verifySealPubKey: verifySealPubKey,
@@ -70,7 +71,7 @@ module.exports = {
 
 function createObject (opts) {
   typeforce({
-    object: typeforce.Object,
+    object: types.rawObject,
     prev: typeforce.maybe(types.merkleRootOrObj),
     orig: typeforce.maybe(types.merkleRootOrObj)
   }, opts, true)
@@ -86,6 +87,16 @@ function createObject (opts) {
   }
 
   return obj
+}
+
+function nextVersion (object, link) {
+  link = link || getLink(object, 'hex')
+  object = clone(object)
+  HEADER_PROPS.forEach(prop => delete object[prop])
+  // delete object[SIG]
+  object[PREV] = link
+  object[ORIG] = object[ORIG] || link
+  return object
 }
 
 function createMessage (opts, cb) {
@@ -140,8 +151,6 @@ function validateMessage (opts) {
       throw new Error(`object[${PREV}] and "prev" don't match`)
     }
   }
-
-  // return validateObject({ object: opts.message })
 }
 
 function merkleAndSign (opts, cb) {
@@ -161,7 +170,7 @@ function merkleAndSign (opts, cb) {
   author.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
-    const encodedSig = proto.ECSignature.encode({
+    const encodedSig = utils.encodeSig({
       pubKey: author.sigPubKey,
       sig: sig
     })
@@ -226,7 +235,7 @@ function verifySealPubKey (opts) {
     pubKeyFromObject(object)
   ])
 
-  return utils.pubKeysAreEqual(expected, opts.sealPubKey)
+  return utils.ecPubKeysAreEqual(expected, opts.sealPubKey)
 }
 
 function verifySealPrevPubKey (opts) {
@@ -235,7 +244,7 @@ function verifySealPrevPubKey (opts) {
   }, opts)
 
   const expected = calcSealPrevPubKey(opts)
-  return utils.pubKeysAreEqual(expected, opts.sealPrevPubKey)
+  return utils.ecPubKeysAreEqual(expected, opts.sealPrevPubKey)
 }
 
 /**
@@ -291,8 +300,8 @@ function validateVersioning (opts) {
       throw new Error(`object missing property "${PREV}"`)
     }
 
-    const expectedPrev = Buffer.isBuffer(prev) ? prev : getLink(prev)
-    if (!object[PREV].equals(expectedPrev)) {
+    const expectedPrev = typeof prev === 'string' ? prev : getStringLink(prev)
+    if (object[PREV] !== expectedPrev) {
       throw new Error(`object[${PREV}] and "prev" don't match`)
     }
   }
@@ -307,9 +316,13 @@ function validateVersioning (opts) {
       throw new Error(`object missing property "${ORIG}"`)
     }
 
-    const expectedOrig = Buffer.isBuffer(orig) ? orig : getLink(orig)
-    if (!object[ORIG].equals(expectedOrig)) {
+    const expectedOrig = typeof orig === 'string' ? orig : getStringLink(orig)
+    if (object[ORIG] !== expectedOrig) {
       throw new Error(`object[${ORIG}] and "orig" don't match`)
+    }
+
+    if (prev[ORIG] && prev[ORIG] !== object[ORIG]) {
+      throw new Error(`object and prev have different ${ORIG}`)
     }
   }
 }
@@ -537,6 +550,10 @@ function getBody (obj) {
   return utils.omit(obj, HEADER_PROPS)
 }
 
+function getStringLink (obj) {
+  return getLink(obj, 'hex')
+}
+
 function getLink (obj, enc) {
   if (Buffer.isBuffer(obj)) {
     if (obj.length === 32) {
@@ -627,6 +644,8 @@ function unserializeMessage (msg) {
   msg = proto.Message.decode(msg)
   msg.object = JSON.parse(msg.object)
   msg[TYPE] = constants.MESSAGE_TYPE
-  msg[SIG] = utils.sigToString(msg[SIG])
+  msg[SIG] = utils.sigToString(utils.encodeSig(msg[SIG]))
+  if (msg.prev == null) delete msg.prev
+
   return msg
 }
