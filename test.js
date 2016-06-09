@@ -3,7 +3,7 @@
 const crypto = require('crypto')
 const typeforce = require('typeforce')
 const test = require('tape')
-const extend = require('xtend')
+const clone = require('xtend')
 const secp256k1 = require('secp256k1')
 const protocol = require('./')
 const constants = require('./lib/constants')
@@ -45,7 +45,7 @@ const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 //     const unserialized = proto.unserialize(serialized)
 //     t.same(unserialized, {
 //       headers: [
-//         extend(header, { txId: null })
+//         clone(header, { txId: null })
 //       ],
 //       object: sendRes.object
 //     })
@@ -84,6 +84,28 @@ test('primitives', function (t) {
   const v1MerkleRoot = protocol.merkleRoot(v1)
   t.same(v1MerkleRoot, new Buffer('1743d6658cd54a59c2fcece177f329217c14452320be8398bdc5252b9261a269','hex'))
   t.end()
+})
+
+test('sign/verify', function (t) {
+  var object = {
+    [TYPE]: 'blah',
+    a: 1,
+    b: 2
+  }
+
+  const people = newPeople(2)
+  const alice = people[0]
+  const bob = people[1]
+
+  protocol.sign({
+    object: object,
+    author: bob.author
+  }, function (err, result) {
+    if (err) throw err
+
+    t.ok(protocol.verify({ object: result.object }))
+    t.end()
+  })
 })
 
 test('bob sends, alice receives, carol audits', function (t) {
@@ -149,53 +171,55 @@ test('seals', function (t) {
   protocol.sign({
     object: v1,
     author: bob.author
-  }, function (err) {
+  }, function (err, result) {
     if (err) throw err
 
+    const signed = result.object
     let sealPubKey = protocol.sealPubKey({
-      object: v1,
+      object: signed,
       basePubKey: alice.chainPubKey
     })
 
     t.ok(protocol.verifySealPubKey({
-      object: v1,
+      object: signed,
       basePubKey: alice.chainPubKey,
       sealPubKey: sealPubKey
     }))
 
     t.notOk(protocol.verifySealPubKey({
-      object: v1,
+      object: signed,
       basePubKey: bob.chainPubKey,
       sealPubKey: sealPubKey
     }))
 
-    const rawV2 = extend(v1, { c: 3 })
+    const rawV2 = clone(signed, { c: 3 })
     delete rawV2[SIG]
     const v2 = protocol.object({
       object: rawV2,
-      prev: v1,
-      orig: v1
+      prev: signed,
+      orig: signed
     })
 
     protocol.sign({
       object: v2,
       author: bob.author
-    }, function (err) {
+    }, function (err, result) {
       if (err) throw err
 
+      const signed = result.object
       let sealPrevPubKey = protocol.sealPrevPubKey({
-        object: v2,
+        object: signed,
         basePubKey: alice.chainPubKey
       })
 
       t.ok(protocol.verifySealPrevPubKey({
-        object: v2,
+        object: signed,
         basePubKey: alice.chainPubKey,
         sealPrevPubKey: sealPrevPubKey
       }))
 
       t.notOk(protocol.verifySealPrevPubKey({
-        object: v2,
+        object: signed,
         basePubKey: bob.chainPubKey,
         sealPrevPubKey: sealPrevPubKey
       }))
@@ -216,16 +240,17 @@ test('validateVersioning', function (t) {
   protocol.sign({
     object: v1,
     author: bob.author
-  }, function (err) {
+  }, function (err, result) {
     if (err) throw err
 
+    const signed = result.object
     t.throws(function () {
       protocol.validateVersioning({
         object: {
           a: 2,
           b: 2
         },
-        prev: v1
+        prev: signed
       })
     })
 
@@ -236,7 +261,7 @@ test('validateVersioning', function (t) {
           b: 2,
           [PREV]: crypto.randomBytes(32)
         },
-        prev: v1
+        prev: signed
       })
     })
 
@@ -245,9 +270,9 @@ test('validateVersioning', function (t) {
         object: {
           a: 2,
           b: 2,
-          [PREV]: protocol.linkString(v1)
+          [PREV]: protocol.linkString(signed)
         },
-        prev: v1
+        prev: signed
       })
     })
 
@@ -270,11 +295,12 @@ test('versioning', function (t) {
   protocol.sign({
     object: v1,
     author: bob.author
-  }, function (err) {
+  }, function (err, result) {
     if (err) throw err
 
-    t.doesNotThrow(() => protocol.validateVersioning({ object: v1 }))
-    t.same(protocol.sigPubKey({ object: v1 }), bob.sigPubKey)
+    const signedV1 = result.object
+    t.doesNotThrow(() => protocol.validateVersioning({ object: signedV1 }))
+    t.same(protocol.sigPubKey({ object: signedV1 }), bob.sigPubKey)
 
     const v2 = protocol.object({
       object: {
@@ -283,45 +309,46 @@ test('versioning', function (t) {
         c: 3,
         [TYPE]: 'something'
       },
-      prev: v1,
-      orig: v1
+      prev: signedV1,
+      orig: signedV1
     })
 
     protocol.sign({
       object: v2,
       author: bob.author
-    }, function (err) {
+    }, function (err, result) {
       if (err) throw err
 
+      const signed = result.object
       t.throws(function () {
         protocol.validateVersioning({
-          object: v2,
+          object: signed,
           authorPubKey: bob.sigPubKey
         })
       }, /prev/)
 
       t.throws(function () {
         protocol.validateVersioning({
-          object: v2,
+          object: signed,
           authorPubKey: bob.sigPubKey,
-          prev: v1
+          prev: signedV1
         })
       }, /orig/)
 
       t.throws(function () {
-        v2 = utils.omit(v2, PREV)
+        signed = utils.omit(signed, PREV)
         protocol.validateVersioning({
-          object: v2,
+          object: signed,
           authorPubKey: bob.sigPubKey
         })
       })
 
       t.doesNotThrow(function () {
         protocol.validateVersioning({
-          object: v2,
+          object: signed,
           authorPubKey: bob.sigPubKey,
-          prev: v1,
-          orig: v1
+          prev: signedV1,
+          orig: signedV1
         })
       }, /orig/)
 

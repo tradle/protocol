@@ -49,6 +49,7 @@ module.exports = {
   // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
   verifySig: verifySig,
+  verify: verifySig,
   // validateObject: validateObject,
   validateVersioning: validateVersioning,
   prove: prove,
@@ -163,11 +164,11 @@ function merkleAndSign (opts, cb) {
 
   const author = opts.author
   const object = opts.object
-  // if (object[SIG]) throw new Error('object is already signed')
+  if (object[SIG]) throw new Error('object is already signed')
 
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
-  if (object[SIG]) return onsigned()
+  if (object[SIG]) return cb(null, object)
 
   author.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
@@ -177,18 +178,14 @@ function merkleAndSign (opts, cb) {
       sig: sig
     })
 
-    object[SIG] = utils.sigToString(encodedSig)
-    onsigned()
-  })
-
-  function onsigned () {
+    sig = utils.sigToString(encodedSig)
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
-      sig: object[SIG],
-      object: object
+      sig: sig,
+      object: extend({ [SIG]: sig }, object)
     })
-  }
+  })
 }
 
 /**
@@ -280,7 +277,11 @@ function getSigKey (opts) {
 }
 
 function verifySig (opts) {
-  return !!getSigKey(opts)
+  try {
+    return !!getSigKey(opts)
+  } catch (err) {
+    return false
+  }
 }
 
 /**
