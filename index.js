@@ -2,6 +2,7 @@
 'use strict'
 
 const crypto = require('crypto')
+const traverse = require('traverse')
 const clone = require('xtend')
 const extend = require('xtend/mutable')
 const typeforce = require('typeforce')
@@ -16,6 +17,8 @@ const utils = require('./lib/utils')
 const types = require('./lib/types')
 const DEFAULT_CURVE = 'secp256k1'
 const SIG = constants.SIG
+const SEQ = constants.SEQ
+const PREV_TO_SENDER = constants.PREV_TO_SENDER
 const TYPE = constants.TYPE
 const PREV = constants.PREVLINK
 const ORIG = constants.PERMALINK
@@ -103,28 +106,12 @@ function nextVersion (object, link) {
 
 function createMessage (opts, cb) {
   typeforce({
-    recipientPubKey: types.ecPubKey,
     author: types.author,
-    object: types.signedObject,
-    prev: typeforce.maybe(types.signedObject)
+    body: types.messageBody
   }, opts)
 
-  const object = opts.object
-  if (!object[SIG]) throw new Error('object must be signed')
-
-  const raw = {
-    [TYPE]: constants.MESSAGE_TYPE,
-    recipientPubKey: opts.recipientPubKey,
-    object: opts.object
-  }
-
-  if (opts.prev) {
-    raw.prev = getStringLink(opts.prev)
-  }
-
-  const message = createObject({
-    object: raw
-  })
+  const message = opts.body
+  if (!message[TYPE]) message[TYPE] = constants.MESSAGE_TYPE
 
   merkleAndSign({
     object: message,
@@ -179,11 +166,13 @@ function merkleAndSign (opts, cb) {
     })
 
     sig = utils.sigToString(encodedSig)
+    const signed = extend({ [SIG]: sig }, object)
+
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
       sig: sig,
-      object: extend({ [SIG]: sig }, object)
+      object: signed
     })
   })
 }
@@ -273,6 +262,7 @@ function getSigKey (opts) {
   // necessary step to make sure key encoded
   // in signature is that key used to sign
   const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
+  const body = getBody(object)
   return utils.getSigKey(merkleRoot, object[SIG])
 }
 
@@ -550,7 +540,7 @@ function getHeader (obj) {
 }
 
 function getBody (obj) {
-  return utils.omit(obj, HEADER_PROPS)
+  return normalize(utils.omit(obj, HEADER_PROPS))
 }
 
 function getStringLink (obj) {
@@ -635,12 +625,14 @@ function isLinkAlike (val) {
 // }
 
 function serializeMessage (msg) {
-  return proto.Message.encode({
-    object: new Buffer(stringify(msg.object)),
-    recipientPubKey: msg.recipientPubKey,
-    [SIG]: utils.parseSig(msg[SIG]),
-    prev: msg.prev
-  })
+  msg = clone(msg)
+  msg.object = new Buffer(stringify(msg.object))
+  msg[SIG] = utils.parseSig(msg[SIG])
+  if (msg[PREV_TO_SENDER]) {
+    msg[PREV_TO_SENDER] = new Buffer(msg[PREV_TO_SENDER], 'hex')
+  }
+
+  return proto.Message.encode(msg)
 }
 
 function unserializeMessage (msg) {
@@ -648,7 +640,19 @@ function unserializeMessage (msg) {
   msg.object = JSON.parse(msg.object)
   msg[TYPE] = constants.MESSAGE_TYPE
   msg[SIG] = utils.sigToString(utils.encodeSig(msg[SIG]))
-  if (msg.prev == null) delete msg.prev
+  if (msg[PREV_TO_SENDER] == null) delete msg[PREV_TO_SENDER]
+  else msg[PREV_TO_SENDER] = msg[PREV_TO_SENDER].toString('hex')
+  if (msg[SEQ] == null) delete msg[SEQ]
 
   return msg
+}
+
+function normalize (obj) {
+  // replace undefineds with nulls
+  // so stringify/parse is consistent
+  traverse(obj).forEach(function (val) {
+    if (val === undefined) this.update(null)
+  })
+
+  return obj
 }

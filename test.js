@@ -129,8 +129,10 @@ test('bob sends, alice receives, carol audits', function (t) {
     // bob sends
     protocol.message({
       author: bob.author,
-      recipientPubKey: alice.sigPubKey,
-      object: result.object
+      body: {
+        recipientPubKey: alice.sigPubKey,
+        object: result.object
+      }
     }, function (err, result) {
       if (err) throw err
 
@@ -153,6 +155,10 @@ test('seals', function (t) {
   const rawV1 = {
     a: 1,
     b: 2,
+    c: {
+      d: undefined,
+      e: null
+    },
     [TYPE]: 'something'
   }
 
