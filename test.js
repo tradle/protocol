@@ -342,9 +342,9 @@ test('versioning', function (t) {
       }, /orig/)
 
       t.throws(function () {
-        signed = utils.omit(signed, PREV)
+        const bad = utils.omit(signed, PREV)
         protocol.validateVersioning({
-          object: signed,
+          object: bad,
           authorPubKey: bob.sigPubKey
         })
       })
