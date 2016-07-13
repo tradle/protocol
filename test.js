@@ -448,6 +448,38 @@ test('prove with builder, verify', function (t) {
   t.end()
 })
 
+test('use different hash', function (t) {
+  var object = {
+    [TYPE]: 'blah',
+    a: 1,
+    b: 2
+  }
+
+  const people = newPeople(2)
+  const alice = people[0]
+  const bob = people[1]
+  const defaultMerkleOpts = protocol.DEFAULT_MERKLE_OPTS
+  protocol.DEFAULT_MERKLE_OPTS = {
+    leaf: function (a) {
+      return a.data
+    },
+    parent: function (a, b) {
+      return a.hash + b.hash
+    }
+  }
+
+  protocol.sign({
+    object: object,
+    author: bob.author,
+  }, function (err, result) {
+    if (err) throw err
+
+    t.ok(protocol.verify({ object: result.object }))
+    protocol.DEFAULT_MERKLE_OPTS = defaultMerkleOpts
+    t.end()
+  })
+})
+
 function sha256 (data) {
   return crypto.createHash('sha256').update(data).digest()
 }

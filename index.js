@@ -24,16 +24,15 @@ const PREV = constants.PREVLINK
 const ORIG = constants.PERMALINK
 const HEADER_PROPS = [SIG]
 
-const DEFAULT_MERKLE_OPTS = {
-  leaf: function (node) {
-    return sha256(node.data)
-  },
-  parent: function (a, b) {
-    return concatSha256(a.hash, b.hash)
-  }
-}
-
 module.exports = {
+  DEFAULT_MERKLE_OPTS: {
+    leaf: function leaf (node) {
+      return sha256(node.data)
+    },
+    parent: function parent (a, b) {
+      return concatSha256(a.hash, b.hash)
+    }
+  },
   types: types,
   stringify: stringify,
   merkleHash: sha256,
@@ -442,11 +441,12 @@ function byIndexSort (a, b) {
 }
 
 function getMerkleOpts (opts) {
-  if (!opts) return DEFAULT_MERKLE_OPTS
+  const defaults = module.exports.DEFAULT_MERKLE_OPTS
+  if (!opts) return defaults
 
   return {
-    leaf: opts.leaf || DEFAULT_MERKLE_OPTS.leaf,
-    parent: opts.parent || DEFAULT_MERKLE_OPTS.parent
+    leaf: opts.leaf || defaults.leaf,
+    parent: opts.parent || defaults.parent
   }
 }
 
