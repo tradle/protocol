@@ -8,7 +8,7 @@ const secp256k1 = require('secp256k1')
 const protocol = require('./')
 const constants = require('./lib/constants')
 const types = require('./lib/types')
-const proto = require('./lib/proto')
+// const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 // const keys = require('./fixtures.json').ecKeys.map(function (key) {
 //   return new Buffer(key, 'hex')
@@ -108,48 +108,48 @@ test('sign/verify', function (t) {
   })
 })
 
-test('bob sends, alice receives, carol audits', function (t) {
-  var obj = {
-    [TYPE]: 'blah',
-    a: 1,
-    b: 2
-  }
+// test('bob sends, alice receives, carol audits', function (t) {
+//   var obj = {
+//     [TYPE]: 'blah',
+//     a: 1,
+//     b: 2
+//   }
 
-  const people = newPeople(3)
-  const alice = people[0]
-  const bob = people[1]
-  const carol = people[2]
+//   const people = newPeople(3)
+//   const alice = people[0]
+//   const bob = people[1]
+//   const carol = people[2]
 
-  protocol.sign({
-    object: obj,
-    author: bob.author
-  }, function (err, result) {
-    if (err) throw err
+//   protocol.sign({
+//     object: obj,
+//     author: bob.author
+//   }, function (err, result) {
+//     if (err) throw err
 
-    // bob sends
-    protocol.message({
-      author: bob.author,
-      body: {
-        recipientPubKey: alice.sigPubKey,
-        object: result.object
-      }
-    }, function (err, result) {
-      if (err) throw err
+//     // bob sends
+//     protocol.message({
+//       author: bob.author,
+//       body: {
+//         recipientPubKey: alice.sigPubKey,
+//         object: result.object
+//       }
+//     }, function (err, result) {
+//       if (err) throw err
 
-      const message = result.object
-      t.doesNotThrow(function () {
-        typeforce({
-          recipientPubKey: types.ecPubKey,
-          object: typeforce.Object,
-          [SIG]: typeforce.String
-        }, message)
-      })
+//       const message = result.object
+//       t.doesNotThrow(function () {
+//         typeforce({
+//           recipientPubKey: types.ecPubKey,
+//           object: typeforce.Object,
+//           [SIG]: typeforce.String
+//         }, message)
+//       })
 
-      t.doesNotThrow(() => protocol.validateMessage({ object: message }))
-      t.end()
-    })
-  })
-})
+//       t.doesNotThrow(() => protocol.validateMessage({ object: message }))
+//       t.end()
+//     })
+//   })
+// })
 
 test('seals', function (t) {
   const rawV1 = {

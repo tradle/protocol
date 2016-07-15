@@ -12,16 +12,17 @@ const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const constants = require('./lib/constants')
 const parallel = require('run-parallel')
-const proto = require('./lib/proto').schema
+const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
 const DEFAULT_CURVE = 'secp256k1'
 const SIG = constants.SIG
 const SEQ = constants.SEQ
-const PREV_TO_SENDER = constants.PREV_TO_SENDER
+// const PREV_TO_SENDER = constants.PREV_TO_SENDER
 const TYPE = constants.TYPE
 const PREV = constants.PREVLINK
 const ORIG = constants.PERMALINK
+const FORWARD = constants.FORWARD
 const HEADER_PROPS = [SIG]
 
 module.exports = {
@@ -46,8 +47,8 @@ module.exports = {
   verifySealPubKey: verifySealPubKey,
   verifySealPrevPubKey: verifySealPrevPubKey,
   sign: merkleAndSign,
-  message: createMessage,
-  validateMessage: validateMessage,
+  // message: createMessage,
+  // validateMessage: validateMessage,
   // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
   verifySig: verifySig,
@@ -59,15 +60,15 @@ module.exports = {
   verifyProof: verifyProof,
   leaves: getLeaves,
   indices: getIndices,
-  proto: proto,
+  protobufs: proto,
   linkString: getStringLink,
   link: getLink,
   prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
   header: getHeader,
   body: getBody,
-  serializeMessage: serializeMessage,
-  unserializeMessage: unserializeMessage,
+  // serializeMessage: serializeMessage,
+  // unserializeMessage: unserializeMessage,
   genECKey: utils.genECKey,
   constants: constants,
   utils: utils
@@ -103,44 +104,44 @@ function nextVersion (object, link) {
   return object
 }
 
-function createMessage (opts, cb) {
-  typeforce({
-    author: types.author,
-    body: types.messageBody
-  }, opts)
+// function createMessage (opts, cb) {
+//   typeforce({
+//     author: types.author,
+//     body: types.messageBody
+//   }, opts)
 
-  const message = opts.body
-  if (!message[TYPE]) message[TYPE] = constants.MESSAGE_TYPE
+//   const message = opts.body
+//   if (!message[TYPE]) message[TYPE] = constants.MESSAGE_TYPE
 
-  merkleAndSign({
-    object: message,
-    author: opts.author
-  }, cb)
-}
+//   merkleAndSign({
+//     object: message,
+//     author: opts.author
+//   }, cb)
+// }
 
-function validateMessage (opts) {
-  return validateVersioning(opts)
-  // typeforce({
-  //   message: typeforce.Object,
-  //   prev: typeforce.maybe(typeforce.Object)
-  // }, opts)
+// function validateMessage (opts) {
+//   return validateVersioning(opts)
+//   // typeforce({
+//   //   message: typeforce.Object,
+//   //   prev: typeforce.maybe(typeforce.Object)
+//   // }, opts)
 
-  // const message = opts.message
-  // if (message[PREV] || opts.prev) {
-  //   if (message[PREV] && !opts.prev) {
-  //     throw new Error('expected "prev"')
-  //   }
+//   // const message = opts.message
+//   // if (message[PREV] || opts.prev) {
+//   //   if (message[PREV] && !opts.prev) {
+//   //     throw new Error('expected "prev"')
+//   //   }
 
-  //   if (!message[PREV] && opts.prev) {
-  //     throw new Error(`message missing property "${PREV}"`)
-  //   }
+//   //   if (!message[PREV] && opts.prev) {
+//   //     throw new Error(`message missing property "${PREV}"`)
+//   //   }
 
-  //   const expectedPrev = getLink(opts.prev)
-  //   if (!message[PREV].equals(expectedPrev)) {
-  //     throw new Error(`object[${PREV}] and "prev" don't match`)
-  //   }
-  // }
-}
+//   //   const expectedPrev = getLink(opts.prev)
+//   //   if (!message[PREV].equals(expectedPrev)) {
+//   //     throw new Error(`object[${PREV}] and "prev" don't match`)
+//   //   }
+//   // }
+// }
 
 function merkleAndSign (opts, cb) {
   typeforce({
@@ -623,29 +624,6 @@ function isLinkAlike (val) {
 //   const shareMerkleRoot = computeMerkleRoot(share, merkleOpts)
 //   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
 // }
-
-function serializeMessage (msg) {
-  msg = clone(msg)
-  msg.object = new Buffer(stringify(msg.object))
-  msg[SIG] = utils.parseSig(msg[SIG])
-  if (msg[PREV_TO_SENDER]) {
-    msg[PREV_TO_SENDER] = new Buffer(msg[PREV_TO_SENDER], 'hex')
-  }
-
-  return proto.Message.encode(msg)
-}
-
-function unserializeMessage (msg) {
-  msg = proto.Message.decode(msg)
-  msg.object = JSON.parse(msg.object)
-  msg[TYPE] = constants.MESSAGE_TYPE
-  msg[SIG] = utils.sigToString(utils.encodeSig(msg[SIG]))
-  if (msg[PREV_TO_SENDER] == null) delete msg[PREV_TO_SENDER]
-  else msg[PREV_TO_SENDER] = msg[PREV_TO_SENDER].toString('hex')
-  if (msg[SEQ] == null) delete msg[SEQ]
-
-  return msg
-}
 
 function normalize (obj) {
   // replace undefineds with nulls
