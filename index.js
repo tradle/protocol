@@ -268,7 +268,8 @@ function parseObject (opts) {
 
 function getSigKey (opts) {
   typeforce({
-    object: typeforce.Object
+    object: typeforce.Object,
+    verify: typeforce.maybe(typeforce.Function)
   }, opts)
 
   const object = opts.object
@@ -276,7 +277,7 @@ function getSigKey (opts) {
   // in signature is that key used to sign
   const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
   const body = getBody(object)
-  return utils.getSigKey(merkleRoot, object[SIG])
+  return utils.getSigKey(merkleRoot, object[SIG], opts.verify)
 }
 
 function verifySig (opts) {
