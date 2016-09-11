@@ -41,6 +41,7 @@ module.exports = {
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
   object: createObject,
+  parseObject: parseObject,
   nextVersion: nextVersion,
   sealPubKey: calcSealPubKey,
   sealPrevPubKey: calcSealPrevPubKey,
@@ -252,6 +253,18 @@ function verifySealPrevPubKey (opts) {
 //     sigPubKey: getSigKey(opts)
 //   }
 // }
+
+function parseObject (opts) {
+  const object = opts.object
+  const body = getBody(object)
+  const parsedSig = utils.parseSig(object[SIG])
+  return {
+    merkleRoot: computeMerkleRoot(body, getMerkleOpts(opts)),
+    body: body,
+    sig: parsedSig.sig,
+    pubKey: parsedSig.pubKey
+  }
+}
 
 function getSigKey (opts) {
   typeforce({
