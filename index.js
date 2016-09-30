@@ -98,7 +98,10 @@ function createObject (opts) {
 function nextVersion (object, link) {
   link = link || getStringLink(object)
   object = clone(object)
-  HEADER_PROPS.forEach(prop => delete object[prop])
+  HEADER_PROPS.forEach(prop => {
+    delete object[prop]
+  })
+
   // delete object[SIG]
   object[PREV] = link
   object[ORIG] = object[ORIG] || link
