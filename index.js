@@ -159,8 +159,6 @@ function merkleAndSign (opts, cb) {
 
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
-  if (object[SIG]) return cb(null, object)
-
   author.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
