@@ -2,7 +2,6 @@
 'use strict'
 
 const crypto = require('crypto')
-const traverse = require('traverse')
 const clone = require('xtend')
 const extend = require('xtend/mutable')
 const typeforce = require('typeforce')
@@ -556,7 +555,7 @@ function getHeader (obj) {
 }
 
 function getBody (obj) {
-  return normalize(utils.omit(obj, HEADER_PROPS))
+  return utils.omit(obj, HEADER_PROPS)
 }
 
 function getStringLink (obj) {
@@ -640,12 +639,12 @@ function isLinkAlike (val) {
 //   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
 // }
 
-function normalize (obj) {
-  // replace undefineds with nulls
-  // so stringify/parse is consistent
-  traverse(obj).forEach(function (val) {
-    if (val === undefined) this.update(null)
-  })
+// function normalize (obj) {
+//   // replace undefineds with nulls
+//   // so stringify/parse is consistent
+//   traverse(obj).forEach(function (val) {
+//     if (val === undefined) this.update(null)
+//   })
 
-  return obj
-}
+//   return obj
+// }

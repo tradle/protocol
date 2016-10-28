@@ -86,6 +86,25 @@ test('primitives', function (t) {
   t.end()
 })
 
+test('no undefined', function (t) {
+  const bad = [
+    { blah: undefined },
+    { [TYPE]: 'ok', blah: undefined }
+  ]
+
+  bad.forEach(obj => {
+    t.throws(function () {
+      typeforce(types.object(obj))
+    })
+
+    t.throws(function () {
+      typeforce(types.rawObject(obj))
+    })
+  })
+
+  t.end()
+})
+
 test('sign/verify', function (t) {
   var object = {
     [TYPE]: 'blah',
@@ -156,7 +175,7 @@ test('seals', function (t) {
     a: 1,
     b: 2,
     c: {
-      d: undefined,
+      // d: undefined,
       e: null
     },
     [TYPE]: 'something'
