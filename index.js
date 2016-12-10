@@ -9,6 +9,7 @@ const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
+const flatTree = require('flat-tree')
 const constants = require('./lib/constants')
 const parallel = require('run-parallel')
 const proto = require('./lib/proto')
@@ -353,13 +354,7 @@ function createMerkleTree (obj, opts) {
   })
 
   nodes.push.apply(nodes, gen.finalize())
-  const sorted = new Array(nodes.length)
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]
-    const idx = node.index
-    sorted[idx] = node
-  }
-
+  const sorted = nodes.sort(byIndexSort)
   return {
     nodes: sorted,
     roots: gen.roots,
@@ -384,6 +379,9 @@ function prover (object, opts) {
       if (opts.value) leaves.push(tree.nodes[propNodes.value])
 
       return builder
+    },
+    leaves: function () {
+      return leaves.slice()
     },
     proof: function (cb) {
       return prove({
@@ -488,10 +486,9 @@ function getIndices (obj, keys) {
   const indices = {}
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i]
-    const kIdx = i * 4
     indices[key] = {
-      key: kIdx,
-      value: kIdx + 2
+      key: flatTree.index(0, i * 2),
+      value: flatTree.index(0, i * 2 + 1)
     }
   }
 
