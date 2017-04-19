@@ -583,7 +583,7 @@ function keyFromLink (link) {
 function pubKeyFromLink (link) {
   return {
     curve: 'secp256k1',
-    pub: secp256k1.publicKeyCreate(keyFromLink(link))
+    pub: secp256k1.publicKeyCreate(keyFromLink(link), false)
   }
 }
 
