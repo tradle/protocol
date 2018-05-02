@@ -15,6 +15,7 @@ const utils = require('./lib/utils')
 // })
 
 const TYPE = constants.TYPE
+const VERSION = constants.VERSION
 const SIG = constants.SIG
 const PREV = constants.PREVLINK
 const ORIG = constants.PERMALINK
@@ -74,15 +75,16 @@ const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 test('primitives', function (t) {
   const rawV1 = {
     [TYPE]: 'something',
+    [VERSION]: 0,
     a: 1,
-    b: 2
+    b: 2,
   }
 
   const v1 = protocol.object({ object: rawV1 })
   t.same(v1, rawV1)
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('1743d6658cd54a59c2fcece177f329217c14452320be8398bdc5252b9261a269','hex'))
+  t.same(v1MerkleRoot, new Buffer('68d989bb6bc8c0a856d1ee6d487536dc119a5d2b0223d40599d970975da829cd','hex'))
   t.end()
 })
 
@@ -178,7 +180,8 @@ test('seals', function (t) {
       // d: undefined,
       e: null
     },
-    [TYPE]: 'something'
+    [TYPE]: 'something',
+    [VERSION]: 0
   }
 
   const people = newPeople(3)
@@ -293,6 +296,7 @@ test('validateVersioning', function (t) {
     t.doesNotThrow(function () {
       protocol.validateVersioning({
         object: {
+          [VERSION]: 1,
           a: 2,
           b: 2,
           [PREV]: protocol.linkString(signed)

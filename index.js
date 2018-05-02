@@ -15,14 +15,16 @@ const parallel = require('run-parallel')
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
-const DEFAULT_CURVE = 'secp256k1'
-const SIG = constants.SIG
-const SEQ = constants.SEQ
-// const PREV_TO_SENDER = constants.PREV_TO_SENDER
-const TYPE = constants.TYPE
-const PREV = constants.PREVLINK
-const ORIG = constants.PERMALINK
-const FORWARD = constants.FORWARD
+const CURVE = 'secp256k1'
+const {
+  SIG,
+  SEQ,
+  TYPE,
+  PREVLINK,
+  PERMALINK,
+  VERSION
+} = constants
+
 const HEADER_PROPS = [SIG]
 
 module.exports = {
@@ -64,7 +66,7 @@ module.exports = {
   protobufs: proto,
   linkString: getStringLink,
   link: getLink,
-  prevSealLink: getSealedPrevLink,
+  // prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
   header: getHeader,
   body: getBody,
@@ -85,11 +87,17 @@ function createObject (opts) {
   // shallow copy not too safe
   const obj = getBody(opts.object)
   if (opts.prev) {
-    obj[PREV] = getStringLink(opts.prev)
+    obj[PREVLINK] = getStringLink(opts.prev)
   }
 
   if (opts.orig) {
-    obj[ORIG] = getStringLink(opts.orig)
+    obj[PERMALINK] = getStringLink(opts.orig)
+  }
+
+  if (obj[PREVLINK] || obj[PERMALINK]) {
+    obj[VERSION] = (obj[VERSION] || 0) + 1
+  } else {
+    obj[VERSION] = 0
   }
 
   return obj
@@ -103,49 +111,11 @@ function nextVersion (object, link) {
   })
 
   // delete object[SIG]
-  object[PREV] = link
-  object[ORIG] = object[ORIG] || link
+  object[PREVLINK] = link
+  object[PERMALINK] = object[PERMALINK] || link
+  object[VERSION] = (object[VERSION] || 0) + 1
   return object
 }
-
-// function createMessage (opts, cb) {
-//   typeforce({
-//     author: types.author,
-//     body: types.messageBody
-//   }, opts)
-
-//   const message = opts.body
-//   if (!message[TYPE]) message[TYPE] = constants.MESSAGE_TYPE
-
-//   merkleAndSign({
-//     object: message,
-//     author: opts.author
-//   }, cb)
-// }
-
-// function validateMessage (opts) {
-//   return validateVersioning(opts)
-//   // typeforce({
-//   //   message: typeforce.Object,
-//   //   prev: typeforce.maybe(typeforce.Object)
-//   // }, opts)
-
-//   // const message = opts.message
-//   // if (message[PREV] || opts.prev) {
-//   //   if (message[PREV] && !opts.prev) {
-//   //     throw new Error('expected "prev"')
-//   //   }
-
-//   //   if (!message[PREV] && opts.prev) {
-//   //     throw new Error(`message missing property "${PREV}"`)
-//   //   }
-
-//   //   const expectedPrev = getLink(opts.prev)
-//   //   if (!message[PREV].equals(expectedPrev)) {
-//   //     throw new Error(`object[${PREV}] and "prev" don't match`)
-//   //   }
-//   // }
-// }
 
 function merkleAndSign (opts, cb) {
   typeforce({
@@ -185,14 +155,12 @@ function merkleAndSign (opts, cb) {
 function calcSealPubKey (opts) {
   typeforce({
     basePubKey: types.chainPubKey,
-    object: typeforce.maybe(typeforce.Object),
-    link: typeforce.maybe(typeforce.Buffer)
+    object: typeforce.maybe(typeforce.Object)
   }, opts)
 
-  const link = opts.link || getLink(opts.object)
   return utils.publicKeyCombine([
     opts.basePubKey,
-    pubKeyFromLink(link)
+    pubKeyFromObject(opts.object)
   ])
 }
 
@@ -200,13 +168,11 @@ function calcSealPrevPubKey (opts) {
   typeforce({
     basePubKey: types.chainPubKey,
     object: typeforce.maybe(typeforce.Object),
-    prevLink: typeforce.maybe(typeforce.Buffer)
   }, opts)
 
-  const link = getSealedPrevLink(opts.prevLink || opts.object)
-  return link && utils.publicKeyCombine([
+  return utils.publicKeyCombine([
     opts.basePubKey,
-    pubKeyFromLink(link)
+    prevPubKeyFromObject(opts.object)
   ])
 }
 
@@ -297,50 +263,46 @@ function verifySig (opts) {
  * @return {[type]}            [description]
  */
 function validateVersioning (opts) {
+  debugger
   const object = opts.object
   const prev = opts.prev
-  if (object[PREV] || prev) {
-    if (object[PREV] && !prev) {
+  if (object[PREVLINK] || prev) {
+    if (object[PREVLINK] && !prev) {
       throw new Error('expected "prev"')
     }
 
-    if (!object[PREV] && prev) {
+    if (!object[PREVLINK] && prev) {
       throw new Error(`object missing property "${PREV}"`)
     }
 
     const expectedPrev = typeof prev === 'string' ? prev : getStringLink(prev)
-    if (object[PREV] !== expectedPrev) {
+    if (object[PREVLINK] !== expectedPrev) {
       throw new Error(`object[${PREV}] and "prev" don't match`)
     }
   }
 
   const orig = opts.orig
-  if (object[ORIG] || orig) {
-    if (object[ORIG] && !orig) {
+  if (object[PERMALINK] || orig) {
+    if (object[PERMALINK] && !orig) {
       throw new Error('expected "orig"')
     }
 
-    if (!object[ORIG] && orig) {
-      throw new Error(`object missing property "${ORIG}"`)
+    if (!object[PERMALINK] && orig) {
+      throw new Error(`object missing property "${PERMALINK}"`)
     }
 
     const expectedOrig = typeof orig === 'string' ? orig : getStringLink(orig)
-    if (object[ORIG] !== expectedOrig) {
-      throw new Error(`object[${ORIG}] and "orig" don't match`)
+    if (object[PERMALINK] !== expectedOrig) {
+      throw new Error(`object[${PERMALINK}] and "orig" don't match`)
     }
 
-    if (prev[ORIG] && prev[ORIG] !== object[ORIG]) {
-      throw new Error(`object and prev have different ${ORIG}`)
+    if (prev[PERMALINK] && prev[PERMALINK] !== object[PERMALINK]) {
+      throw new Error(`object and prev have different ${PERMALINK}`)
     }
   }
 }
 
 function createMerkleTree (obj, opts) {
-  if (typeof opts === 'function') {
-    cb = opts
-    opts = null
-  }
-
   if (obj[SIG]) throw new Error('merkle tree should not include signature')
 
   const gen = merkleGenerator(getMerkleOpts(opts))
@@ -537,9 +499,12 @@ function toPrivateKey (priv) {
   return priv
 }
 
-function getHeader (obj) {
+function ensureSigned (obj) {
   if (!obj[SIG]) throw new Error('object must be signed')
+}
 
+function getHeader (obj) {
+  ensureSigned(obj)
   const header = utils.pick(obj, HEADER_PROPS)
   for (let p in header) {
     const val = header[p]
@@ -563,85 +528,42 @@ function getLink (obj, enc) {
   if (Buffer.isBuffer(obj)) {
     if (obj.length === 32) {
       return enc ? obj.toString(enc) : obj
-    } else {
-      try {
-        obj = JSON.parse(obj)
-      } catch (err) {
-        debugger
-      }
     }
+
+    obj = JSON.parse(obj)
   }
 
-  const header = getHeader(obj)
-  return sha256(stringify(header), enc)
-}
-
-function keyFromLink (link) {
-  return toPrivateKey(link)
-}
-
-function pubKeyFromLink (link) {
-  return {
-    curve: 'secp256k1',
-    pub: secp256k1.publicKeyCreate(keyFromLink(link), false)
-  }
+  return toMerkleRoot(obj).toString('hex')
 }
 
 function pubKeyFromObject (object) {
-  return pubKeyFromLink(getLink(object))
+  return pubKeyFromHeader(getHeader(object))
 }
 
-// function getPrevLink (objectOrLink) {
-//   const prev = Buffer.isBuffer(object) ? objectOrLink : object[PREV]
-//   return prev && sha256(prev)
-// }
-
-function getSealedPrevLink (object) {
-  const prevLink = isLinkAlike(object) ? object : object[PREV]
-  if (!prevLink) return
-
-  return sha256(new Buffer(prevLink, 'hex'))
+function pubKeyFromHeader (header, enc) {
+  return pubKeyFromHeaderHash(getHeaderHash(header, enc))
 }
 
-function isLinkAlike (val) {
-  if (Buffer.isBuffer(val)) {
-    return val.length === 32
+function getHeaderHash (header, enc='hex') {
+  return sha256(stringify(header), enc)
+}
+
+function pubKeyFromHeaderHash (hash) {
+  return privToPub(toPrivateKey(hash))
+}
+
+function prevPubKeyFromObject (object) {
+  return prevPubKeyFromHeader(getHeader(object))
+}
+
+function prevPubKeyFromHeader (header, enc) {
+  // double hash header
+  return pubKeyFromHeaderHash(sha256(getHeaderHash(header, enc)))
+}
+
+function privToPub (priv) {
+  return {
+    curve: CURVE,
+    pub: secp256k1.publicKeyCreate(priv, false)
   }
-
-  if (typeof val === 'string') {
-    try {
-      return isLinkAlike(new Buffer(val, 'hex'))
-    } catch (err) {
-    }
-  }
 }
-
-// function getPrevMessageLink (prevMsg) {
-//   typeforce(typeforce.Buffer, prevMsg[SIG])
-//   return sha256(prevMsg[SIG])
-// }
-
-// function getMsgSigData (opts) {
-//   return sha256(
-//     Buffer.concat([
-//       opts.object[SIG],
-//       opts.authorPubKey,
-//       opts.recipientPubKey
-//     ])
-//   )
-// }
-
-// function merkleSignMerkle (data, key, merkleOpts, cb) {
-//   const shareMerkleRoot = computeMerkleRoot(share, merkleOpts)
-//   share[SIG] = utils.sign(shareMerkleRoot, sigKey)
-// }
-
-// function normalize (obj) {
-//   // replace undefineds with nulls
-//   // so stringify/parse is consistent
-//   traverse(obj).forEach(function (val) {
-//     if (val === undefined) this.update(null)
-//   })
-
-//   return obj
-// }
