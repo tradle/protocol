@@ -6,20 +6,21 @@ const test = require('tape')
 const clone = require('xtend')
 const secp256k1 = require('secp256k1')
 const protocol = require('./')
-const constants = require('./lib/constants')
+const {
+  TYPE,
+  VERSION,
+  AUTHOR,
+  SIG,
+  PREVLINK,
+  PERMALINK,
+  PREVHEADER
+} = require('@tradle/constants')
 const types = require('./lib/types')
 // const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 // const keys = require('./fixtures.json').ecKeys.map(function (key) {
 //   return new Buffer(key, 'hex')
 // })
-
-const TYPE = constants.TYPE
-const VERSION = constants.VERSION
-const SIG = constants.SIG
-const PREV = constants.PREVLINK
-const ORIG = constants.PERMALINK
-const PREV_TO_SENDER = constants.PREV_TO_SENDER || '_u'
 
 // test('encode, decode', function (t) {
 //   var obj = {
@@ -76,6 +77,7 @@ test('primitives', function (t) {
   const rawV1 = {
     [TYPE]: 'something',
     [VERSION]: 0,
+    [AUTHOR]: 'bob',
     a: 1,
     b: 2,
   }
@@ -84,7 +86,7 @@ test('primitives', function (t) {
   t.same(v1, rawV1)
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('68d989bb6bc8c0a856d1ee6d487536dc119a5d2b0223d40599d970975da829cd','hex'))
+  t.same(v1MerkleRoot, new Buffer('be071b308bb7d92cfdd54fe752505347e04403d42647738e4ca0abd115df47a9','hex'))
   t.end()
 })
 
@@ -108,18 +110,20 @@ test('no undefined', function (t) {
 })
 
 test('sign/verify', function (t) {
-  var object = {
-    [TYPE]: 'blah',
-    a: 1,
-    b: 2
-  }
-
   const people = newPeople(2)
   const alice = people[0]
   const bob = people[1]
 
+  const object = {
+    [TYPE]: 'blah',
+    [VERSION]: 0,
+    [AUTHOR]: bob.link,
+    a: 1,
+    b: 2
+  }
+
   protocol.sign({
-    object: object,
+    object,
     author: bob.author
   }, function (err, result) {
     if (err) throw err
@@ -173,6 +177,9 @@ test('sign/verify', function (t) {
 // })
 
 test('seals', function (t) {
+  const people = newPeople(3)
+  const alice = people[0]
+  const bob = people[1]
   const rawV1 = {
     a: 1,
     b: 2,
@@ -181,12 +188,9 @@ test('seals', function (t) {
       e: null
     },
     [TYPE]: 'something',
-    [VERSION]: 0
+    [VERSION]: 0,
+    [AUTHOR]: bob.link
   }
-
-  const people = newPeople(3)
-  const alice = people[0]
-  const bob = people[1]
 
   const v1 = protocol.object({ object: rawV1 })
   t.throws(function () {
@@ -220,7 +224,14 @@ test('seals', function (t) {
       sealPubKey: sealPubKey
     }))
 
-    const rawV2 = clone(signed, { c: 3 })
+    const rawV2 = clone(signed, {
+      c: 3,
+      [VERSION]: 1,
+      [PREVLINK]: protocol.linkString(signed),
+      [PERMALINK]: protocol.linkString(signed),
+      [PREVHEADER]: protocol.headerHash(signed),
+    })
+
     delete rawV2[SIG]
     const v2 = protocol.object({
       object: rawV2,
@@ -235,21 +246,26 @@ test('seals', function (t) {
       if (err) throw err
 
       const signed = result.object
-      let sealPrevPubKey = protocol.sealPrevPubKey({
+      const sealPrevPubKey = protocol.sealPrevPubKey({
         object: signed,
         basePubKey: alice.chainPubKey
       })
 
+      t.same(sealPrevPubKey, protocol.sealPrevPubKey({
+        prevHeaderHash: signed[PREVHEADER],
+        basePubKey: alice.chainPubKey
+      }))
+
       t.ok(protocol.verifySealPrevPubKey({
         object: signed,
         basePubKey: alice.chainPubKey,
-        sealPrevPubKey: sealPrevPubKey
+        sealPrevPubKey
       }))
 
       t.notOk(protocol.verifySealPrevPubKey({
         object: signed,
         basePubKey: bob.chainPubKey,
-        sealPrevPubKey: sealPrevPubKey
+        sealPrevPubKey
       }))
 
       t.end()
@@ -258,13 +274,15 @@ test('seals', function (t) {
 })
 
 test('validateVersioning', function (t) {
-  var v1 = {
+  const bob = newPerson()
+  const v1 = {
     a: 1,
     b: 2,
-    [TYPE]: 'something'
+    [TYPE]: 'something',
+    [AUTHOR]: bob.link,
+    [VERSION]: 0
   }
 
-  const bob = newPerson()
   protocol.sign({
     object: v1,
     author: bob.author
@@ -275,6 +293,7 @@ test('validateVersioning', function (t) {
     t.throws(function () {
       protocol.validateVersioning({
         object: {
+          [VERSION]: 0,
           a: 2,
           b: 2
         },
@@ -285,9 +304,60 @@ test('validateVersioning', function (t) {
     t.throws(function () {
       protocol.validateVersioning({
         object: {
+          [VERSION]: 1,
+          a: 2,
+          b: 2
+        },
+        prev: signed
+      })
+    })
+
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          [VERSION]: 1,
           a: 2,
           b: 2,
-          [PREV]: crypto.randomBytes(32)
+          [PREVLINK]: crypto.randomBytes(32)
+        },
+        prev: signed
+      })
+    })
+
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          [VERSION]: 1,
+          a: 2,
+          b: 2,
+          [PREVLINK]: crypto.randomBytes(32),
+          [PREVHEADER]: crypto.randomBytes(32),
+        },
+        prev: signed
+      })
+    })
+
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          [VERSION]: 1,
+          a: 2,
+          b: 2,
+          [PREVLINK]: protocol.linkString(signed),
+          [PREVHEADER]: crypto.randomBytes(32),
+        },
+        prev: signed
+      })
+    })
+
+    t.throws(function () {
+      protocol.validateVersioning({
+        object: {
+          [VERSION]: 1,
+          a: 2,
+          b: 2,
+          [PREVLINK]: protocol.linkString(signed),
+          [PREVHEADER]: protocol.headerHash(signed)
         },
         prev: signed
       })
@@ -299,9 +369,12 @@ test('validateVersioning', function (t) {
           [VERSION]: 1,
           a: 2,
           b: 2,
-          [PREV]: protocol.linkString(signed)
+          [PREVLINK]: protocol.linkString(signed),
+          [PERMALINK]: protocol.linkString(signed),
+          [PREVHEADER]: protocol.headerHash(signed)
         },
-        prev: signed
+        prev: signed,
+        orig: signed
       })
     })
 
@@ -310,16 +383,17 @@ test('validateVersioning', function (t) {
 })
 
 test('versioning', function (t) {
-  const v1 = {
-    a: 1,
-    b: 2,
-    [TYPE]: 'something'
-  }
-
   const people = newPeople(3)
   const alice = people[0]
   const bob = people[1]
   const carol = people[2]
+  const v1 = {
+    a: 1,
+    b: 2,
+    [TYPE]: 'something',
+    [VERSION]: 0,
+    [AUTHOR]: bob.link
+  }
 
   protocol.sign({
     object: v1,
@@ -336,7 +410,12 @@ test('versioning', function (t) {
         a: 1,
         b: 2,
         c: 3,
-        [TYPE]: 'something'
+        [AUTHOR]: bob.link,
+        [TYPE]: 'something',
+        [VERSION]: 1,
+        [PREVHEADER]: protocol.headerHash(signedV1),
+        [PREVLINK]: protocol.linkString(signedV1),
+        [PERMALINK]: protocol.linkString(signedV1),
       },
       prev: signedV1,
       orig: signedV1
@@ -351,10 +430,9 @@ test('versioning', function (t) {
       const signed = result.object
       t.throws(function () {
         protocol.validateVersioning({
-          object: signed,
-          authorPubKey: bob.sigPubKey
+          object: signed
         })
-      }, /prev/)
+      })
 
       t.throws(function () {
         protocol.validateVersioning({
@@ -362,24 +440,22 @@ test('versioning', function (t) {
           authorPubKey: bob.sigPubKey,
           prev: signedV1
         })
-      }, /orig/)
+      })
 
       t.throws(function () {
-        const bad = utils.omit(signed, PREV)
+        const bad = utils.omit(signed, PREVLINK)
         protocol.validateVersioning({
-          object: bad,
-          authorPubKey: bob.sigPubKey
+          object: bad
         })
       })
 
       t.doesNotThrow(function () {
         protocol.validateVersioning({
           object: signed,
-          authorPubKey: bob.sigPubKey,
           prev: signedV1,
           orig: signedV1
         })
-      }, /orig/)
+      })
 
       // const v3 = protocol.object({
       //   object: v2,
@@ -472,15 +548,17 @@ test('prove with builder, verify', function (t) {
 })
 
 test('use different hash', function (t) {
-  var object = {
+  const people = newPeople(2)
+  const alice = people[0]
+  const bob = people[1]
+  const object = {
     [TYPE]: 'blah',
+    [AUTHOR]: bob.link,
+    [VERSION]: 0,
     a: 1,
     b: 2
   }
 
-  const people = newPeople(2)
-  const alice = people[0]
-  const bob = people[1]
   const defaultMerkleOpts = protocol.DEFAULT_MERKLE_OPTS
   protocol.DEFAULT_MERKLE_OPTS = {
     leaf: function (a) {
@@ -492,7 +570,7 @@ test('use different hash', function (t) {
   }
 
   protocol.sign({
-    object: object,
+    object,
     author: bob.author,
   }, function (err, result) {
     if (err) throw err
@@ -503,19 +581,11 @@ test('use different hash', function (t) {
   })
 })
 
-function sha256 (data) {
-  return crypto.createHash('sha256').update(data).digest()
-}
-
-function privToPub (key) {
-  return secp256k1.publicKeyCreate(key)
-}
-
 function newPerson () {
   var person = {
     chainKey: protocol.genECKey(),
     sigKey: protocol.genECKey('p256'),
-    link: crypto.randomBytes(32)
+    link: crypto.randomBytes(32).toString('hex')
   }
 
   person.sigPubKey = utils.omit(person.sigKey, 'priv')
