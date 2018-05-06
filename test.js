@@ -13,6 +13,7 @@ const {
   SIG,
   PREVLINK,
   PERMALINK,
+  TIMESTAMP,
   PREVHEADER
 } = require('@tradle/constants')
 const types = require('./lib/types')
@@ -74,19 +75,18 @@ const utils = require('./lib/utils')
 // })
 
 test('primitives', function (t) {
-  const rawV1 = {
-    [TYPE]: 'something',
-    [VERSION]: 0,
-    [AUTHOR]: 'bob',
-    a: 1,
-    b: 2,
-  }
-
-  const v1 = protocol.object({ object: rawV1 })
-  t.same(v1, rawV1)
+  const v1 = protocol.object({
+    object: {
+      [TYPE]: 'something',
+      [AUTHOR]: 'bob',
+      [TIMESTAMP]: 12345,
+      a: 1,
+      b: 2,
+    }
+  })
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('be071b308bb7d92cfdd54fe752505347e04403d42647738e4ca0abd115df47a9','hex'))
+  t.same(v1MerkleRoot, new Buffer('dc5d1333d488d420ce0ba9f89b883876727e52ae64e9efbd8de9d1a380389f80','hex'))
   t.end()
 })
 
@@ -114,13 +114,14 @@ test('sign/verify', function (t) {
   const alice = people[0]
   const bob = people[1]
 
-  const object = {
-    [TYPE]: 'blah',
-    [VERSION]: 0,
-    [AUTHOR]: bob.link,
-    a: 1,
-    b: 2
-  }
+  const object = protocol.object({
+    object: {
+      [TYPE]: 'blah',
+      [AUTHOR]: bob.link,
+      a: 1,
+      b: 2
+    }
+  })
 
   protocol.sign({
     object,
@@ -188,7 +189,6 @@ test('seals', function (t) {
       e: null
     },
     [TYPE]: 'something',
-    [VERSION]: 0,
     [AUTHOR]: bob.link
   }
 
@@ -275,13 +275,14 @@ test('seals', function (t) {
 
 test('validateVersioning', function (t) {
   const bob = newPerson()
-  const v1 = {
-    a: 1,
-    b: 2,
-    [TYPE]: 'something',
-    [AUTHOR]: bob.link,
-    [VERSION]: 0
-  }
+  const v1 = protocol.object({
+    object: {
+      a: 1,
+      b: 2,
+      [TYPE]: 'something',
+      [AUTHOR]: bob.link,
+    }
+  })
 
   protocol.sign({
     object: v1,
@@ -387,13 +388,15 @@ test('versioning', function (t) {
   const alice = people[0]
   const bob = people[1]
   const carol = people[2]
-  const v1 = {
-    a: 1,
-    b: 2,
-    [TYPE]: 'something',
-    [VERSION]: 0,
-    [AUTHOR]: bob.link
-  }
+  const v1 = protocol.object({
+    object: {
+      a: 1,
+      b: 2,
+      [TYPE]: 'something',
+      [VERSION]: 0,
+      [AUTHOR]: bob.link
+    }
+  })
 
   protocol.sign({
     object: v1,
@@ -551,13 +554,15 @@ test('use different hash', function (t) {
   const people = newPeople(2)
   const alice = people[0]
   const bob = people[1]
-  const object = {
-    [TYPE]: 'blah',
-    [AUTHOR]: bob.link,
-    [VERSION]: 0,
-    a: 1,
-    b: 2
-  }
+  const object = protocol.object({
+    object: {
+      [TYPE]: 'blah',
+      [AUTHOR]: bob.link,
+      [VERSION]: 0,
+      a: 1,
+      b: 2
+    }
+  })
 
   const defaultMerkleOpts = protocol.DEFAULT_MERKLE_OPTS
   protocol.DEFAULT_MERKLE_OPTS = {

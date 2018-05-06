@@ -24,6 +24,7 @@ const {
   VERSION,
   AUTHOR,
   PREVHEADER,
+  TIMESTAMP,
 } = constants
 
 const { HEADER_PROPS } = require('./lib/constants')
@@ -57,7 +58,7 @@ const toMerkleRoot = (merkleRootOrObj, opts) => {
 
 const createObject = (opts) => {
   typeforce({
-    object: types.rawObject,
+    object: types.createObjectInput,
     prev: typeforce.maybe(types.signedObject),
     orig: typeforce.maybe(types.merkleRootOrObj)
   }, opts, true)
@@ -76,6 +77,10 @@ const createObject = (opts) => {
     obj[VERSION] = (obj[VERSION] || 0) + 1
   } else {
     obj[VERSION] = 0
+  }
+
+  if (!obj[TIMESTAMP]) {
+    obj[TIMESTAMP] = Date.now()
   }
 
   return obj
@@ -254,6 +259,7 @@ const validateVersioning = (opts) => {
   if (validatePrev || validateOrig) {
     ensureNonZeroVersion(object)
     ensurePrevHeader(object)
+    ensureTimestampIncreased(object, prev)
   } else {
     if (object[VERSION] && object[VERSION] !== 0) {
       throw new Error(`expected object.${VERSION} to be 0`)
@@ -292,6 +298,10 @@ const validateVersioning = (opts) => {
       throw new Error(`expected object.${PERMALINK} === prev.${PERMALINK}`)
     }
   }
+}
+
+const ensureTimestampIncreased = (object, prev) => {
+  return object._time > prev._time
 }
 
 const ensureNonZeroVersion = object => {
