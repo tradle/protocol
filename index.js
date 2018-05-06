@@ -36,9 +36,24 @@ const concatSha256 = (a, b, enc) => {
   return crypto.createHash('sha256').update(a).update(b).digest(enc)
 }
 
-const headerHashFn = sha256
-
 const getHeaderHash = object => hashHeader(getHeader(object))
+
+const getMerkleRoot = (tree) => {
+  return tree.roots[0].hash
+}
+
+const computeMerkleRoot = (obj, opts) => {
+  const tree = createMerkleTree(obj, getMerkleOpts(opts))
+  return getMerkleRoot(tree)
+}
+
+const headerHashFn = obj => computeMerkleRoot(obj).toString(ENC)
+
+const toMerkleRoot = (merkleRootOrObj, opts) => {
+  return Buffer.isBuffer(merkleRootOrObj)
+    ? merkleRootOrObj
+    : computeMerkleRoot(getBody(merkleRootOrObj), opts)
+}
 
 const createObject = (opts) => {
   typeforce({
@@ -59,6 +74,8 @@ const createObject = (opts) => {
 
   if (obj[PREVLINK] || obj[PERMALINK]) {
     obj[VERSION] = (obj[VERSION] || 0) + 1
+  } else {
+    obj[VERSION] = 0
   }
 
   return obj
@@ -438,21 +455,6 @@ const getKeyInputData = (objInfo) => {
   return objInfo.sig
 }
 
-const getMerkleRoot = (tree) => {
-  return tree.roots[0].hash
-}
-
-const computeMerkleRoot = (obj, opts) => {
-  const tree = createMerkleTree(obj, getMerkleOpts(opts))
-  return getMerkleRoot(tree)
-}
-
-const toMerkleRoot = (merkleRootOrObj, opts) => {
-  return Buffer.isBuffer(merkleRootOrObj)
-    ? merkleRootOrObj
-    : computeMerkleRoot(getBody(merkleRootOrObj), opts)
-}
-
 // function getSigData (sigInput) {
 //   typeforce(types.sigInput, sigInput)
 
@@ -496,7 +498,7 @@ const getBody = (obj) => {
 }
 
 const getStringLink = (obj) => {
-  return getLink(obj, 'hex')
+  return getLink(obj, ENC)
 }
 
 const getLink = (obj, enc) => {
@@ -508,7 +510,7 @@ const getLink = (obj, enc) => {
     obj = JSON.parse(obj)
   }
 
-  return toMerkleRoot(obj).toString('hex')
+  return toMerkleRoot(obj).toString(ENC)
 }
 
 const pubKeyFromObject = (object) => {
