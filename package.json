@@ -10,7 +10,7 @@
   "author": "Mark Vayngrib <mark@tradle.io> (http://github.com/mvayngrib)",
   "license": "GPLv3",
   "dependencies": {
-    "@tradle/constants": "^2.3.1",
+    "@tradle/constants": "^2.3.2",
     "elliptic": "^6.3.1",
     "flat-tree": "1.4.0",
     "json-stable-stringify": "^1.0.1",
