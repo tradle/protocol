@@ -105,7 +105,10 @@ const merkleAndSign = (opts, cb) => {
   let { author, object } = opts
   if (object[SIG]) throw new Error('object is already signed')
 
-  object[AUTHOR] = author.permalink
+  if (author.permalink) {
+    object[AUTHOR] = author.permalink
+  }
+
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
   author.sign(merkleRoot, function (err, sig) {
