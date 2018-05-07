@@ -73,8 +73,10 @@ const createObject = (opts) => {
     obj[PERMALINK] = getStringLink(opts.orig)
   }
 
-  if (obj[PREVLINK] || obj[PERMALINK]) {
-    obj[VERSION] = (obj[VERSION] || 0) + 1
+  if (!(obj[VERSION] > 0)) {
+    if (obj[PREVLINK] || obj[PERMALINK] || obj[PREVHEADER]) {
+      throw new Error('expected non-zero version')
+    }
   }
 
   if (!obj[TIMESTAMP]) {
