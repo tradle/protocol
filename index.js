@@ -499,10 +499,6 @@ const getBody = (obj) => {
   return utils.omit(obj, HEADER_PROPS)
 }
 
-const getStringLink = (obj) => {
-  return getLink(obj, ENC)
-}
-
 const getLink = (obj, enc) => {
   if (Buffer.isBuffer(obj)) {
     if (obj.length === 32) {
@@ -513,6 +509,32 @@ const getLink = (obj, enc) => {
   }
 
   return toMerkleRoot(obj).toString(ENC)
+}
+
+const getStringLink = getLink
+const getLinks = wrapper => {
+  typeforce({
+    object: typeforce.maybe(typeforce.Object),
+    permalink: typeforce.maybe(typeforce.String),
+    link: typeforce.maybe(typeforce.String),
+    prevLink: typeforce.maybe(typeforce.String)
+  }, wrapper)
+
+  const object = wrapper.object
+  const link = wrapper.link || (object && getStringLink(object))
+  const links = {
+    link: link,
+    permalink: wrapper.permalink || (object ? object[PERMALINK] || link : null)
+  }
+
+  const prevLink = wrapper.prevLink || (object && object[PREVLINK])
+  if (prevLink) links.prevLink = prevLink
+
+  if (!links.permalink && links.prevLink) {
+    throw new Error('expected "permalink"')
+  }
+
+  return links
 }
 
 const pubKeyFromObject = (object) => {
@@ -596,6 +618,7 @@ module.exports = {
   protobufs: proto,
   linkString: getStringLink,
   link: getLink,
+  links: getLinks,
   // prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
   header: getHeader,
