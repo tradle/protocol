@@ -75,8 +75,6 @@ const createObject = (opts) => {
 
   if (obj[PREVLINK] || obj[PERMALINK]) {
     obj[VERSION] = (obj[VERSION] || 0) + 1
-  } else {
-    obj[VERSION] = 0
   }
 
   if (!obj[TIMESTAMP]) {
@@ -88,28 +86,26 @@ const createObject = (opts) => {
 
 const nextVersion = (object, link) => {
   link = link || getStringLink(object)
-  object = clone(object)
-  HEADER_PROPS.forEach(prop => {
-    delete object[prop]
-  })
-
-  // delete object[SIG]
+  const headerHash = getHeaderHash(object)
+  object = utils.omit(object, HEADER_PROPS)
   object[PREVLINK] = link
   object[PERMALINK] = object[PERMALINK] || link
+  object[PREVHEADER] = headerHash
   object[VERSION] = (object[VERSION] || 0) + 1
+  object[TIMESTAMP] = Date.now()
   return object
 }
 
 const merkleAndSign = (opts, cb) => {
   typeforce({
     author: types.author,
-    object: types.rawObject
+    object: types.signObjectInput
   }, opts)
 
-  const author = opts.author
-  const object = opts.object
+  let { author, object } = opts
   if (object[SIG]) throw new Error('object is already signed')
 
+  object[AUTHOR] = author.permalink
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
   author.sign(merkleRoot, function (err, sig) {
@@ -250,10 +246,6 @@ const ensurePrevHeader = object => {
  */
 const validateVersioning = (opts) => {
   const { object, orig, prev } = opts
-  if (typeof object[VERSION] !== 'number') {
-    throw new Error(`missing ${VERSION}`)
-  }
-
   const validatePrev = object[PREVLINK] || object[VERSION] !== 0 || prev
   const validateOrig = object[PERMALINK] || object[VERSION] !== 0 || orig
   if (validatePrev || validateOrig) {
@@ -551,6 +543,8 @@ const iterateHeaderHash = (headerHash, enc=ENC) => {
   return headerHashFn(new Buffer(headerHash, enc), enc)
 }
 
+const getIteratedHeaderHash = object => iterateHeaderHash(getHeaderHash(object))
+
 const toBuffer = (str, enc=ENC) => {
   return Buffer.isBuffer(str) ? str : new Buffer(str, enc)
 }
@@ -606,10 +600,12 @@ module.exports = {
   // prevLink: getPrevLink,
   header: getHeader,
   headerHash: getHeaderHash,
+  iteratedHeaderHash: getIteratedHeaderHash,
+  iterateHeaderHash,
   body: getBody,
   // serializeMessage: serializeMessage,
   // unserializeMessage: unserializeMessage,
   genECKey: utils.genECKey,
   constants,
-  utils: utils
+  utils
 }

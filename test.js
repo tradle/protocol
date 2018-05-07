@@ -86,7 +86,7 @@ test('primitives', function (t) {
   })
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('dc5d1333d488d420ce0ba9f89b883876727e52ae64e9efbd8de9d1a380389f80','hex'))
+  t.same(v1MerkleRoot, new Buffer('68855cff2476f814ca73b49d14e469f8749f637c55f11ca9d3c3132dd1a91538','hex'))
   t.end()
 })
 
@@ -599,6 +599,7 @@ function newPerson () {
   // person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
   // person.sigPubKey = secp256k1.publicKeyCreate(person.sigKey.priv)
   person.author = {
+    permalink: person.link,
     sigPubKey: utils.omit(person.sigKey, 'priv'),
     sign: function (merkleRoot, cb) {
       cb(null, utils.sign(merkleRoot, person.sigKey))
