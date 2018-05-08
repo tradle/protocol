@@ -14,7 +14,8 @@ const {
   PREVLINK,
   PERMALINK,
   TIMESTAMP,
-  PREVHEADER
+  PREVHEADER,
+  WITNESSES,
 } = require('@tradle/constants')
 const types = require('./lib/types')
 // const proto = require('./lib/proto')
@@ -36,7 +37,7 @@ const utils = require('./lib/utils')
 //     sigKey: bob.sigKey,
 //     object: obj
 //   }, function (err, sendRes) {
-//     if (err) throw err
+//     rethrow(err)
 
 //     const header = sendRes.header
 //     const serialized = proto.serialize({
@@ -127,7 +128,7 @@ test('sign/verify', function (t) {
     object,
     author: bob.author
   }, function (err, result) {
-    if (err) throw err
+    rethrow(err)
 
     t.ok(protocol.verify({ object: result.object }))
     t.end()
@@ -150,7 +151,7 @@ test('sign/verify', function (t) {
 //     object: obj,
 //     author: bob.author
 //   }, function (err, result) {
-//     if (err) throw err
+//     rethrow(err)
 
 //     // bob sends
 //     protocol.message({
@@ -160,7 +161,7 @@ test('sign/verify', function (t) {
 //         object: result.object
 //       }
 //     }, function (err, result) {
-//       if (err) throw err
+//       rethrow(err)
 
 //       const message = result.object
 //       t.doesNotThrow(function () {
@@ -204,7 +205,7 @@ test('seals', function (t) {
     object: v1,
     author: bob.author
   }, function (err, result) {
-    if (err) throw err
+    rethrow(err)
 
     const signed = result.object
     let sealPubKey = protocol.sealPubKey({
@@ -243,7 +244,7 @@ test('seals', function (t) {
       object: v2,
       author: bob.author
     }, function (err, result) {
-      if (err) throw err
+      rethrow(err)
 
       const signed = result.object
       const sealPrevPubKey = protocol.sealPrevPubKey({
@@ -288,7 +289,7 @@ test('validateVersioning', function (t) {
     object: v1,
     author: bob.author
   }, function (err, result) {
-    if (err) throw err
+    rethrow(err)
 
     const signed = result.object
     t.throws(function () {
@@ -402,7 +403,7 @@ test('versioning', function (t) {
     object: v1,
     author: bob.author
   }, function (err, result) {
-    if (err) throw err
+    rethrow(err)
 
     const signedV1 = result.object
     t.doesNotThrow(() => protocol.validateVersioning({ object: signedV1 }))
@@ -428,7 +429,7 @@ test('versioning', function (t) {
       object: v2,
       author: bob.author
     }, function (err, result) {
-      if (err) throw err
+      rethrow(err)
 
       const signed = result.object
       t.throws(function () {
@@ -578,13 +579,59 @@ test('use different hash', function (t) {
     object,
     author: bob.author,
   }, function (err, result) {
-    if (err) throw err
+    rethrow(err)
 
     t.ok(protocol.verify({ object: result.object }))
     protocol.DEFAULT_MERKLE_OPTS = defaultMerkleOpts
     t.end()
   })
 })
+
+test('sign as witness', function (t) {
+  const people = newPeople(2)
+  const [alice, bob] = people
+  const object = protocol.object({
+    object: {
+      [TYPE]: 'blah',
+      [AUTHOR]: alice.link,
+      [VERSION]: 0,
+      a: 1,
+    }
+  })
+
+  protocol.sign({
+    object,
+    author: alice.author,
+  }, function (err, result) {
+    rethrow(err)
+
+    const signed = result.object
+    protocol.witness({
+      object: signed,
+      author: bob.author,
+      permalink: bob.link
+    }, (err, witnessed) => {
+      rethrow(err)
+
+      t.ok(protocol.verifyWitnesses({ object: witnessed }))
+      t.notOk(protocol.verifyWitnesses({
+        object: clone(object, {
+          [WITNESSES]: witnessed[WITNESSES].concat({
+            a: 'abc',
+            s: 'def'
+          })
+        })
+      }))
+
+      t.end()
+    })
+  })
+
+})
+
+function rethrow (err) {
+  if (err) throw err
+}
 
 function newPerson () {
   var person = {
@@ -599,7 +646,6 @@ function newPerson () {
   // person.chainKey.pub = secp256k1.publicKeyCreate(person.chainKey.priv)
   // person.sigPubKey = secp256k1.publicKeyCreate(person.sigKey.priv)
   person.author = {
-    permalink: person.link,
     sigPubKey: utils.omit(person.sigKey, 'priv'),
     sign: function (merkleRoot, cb) {
       cb(null, utils.sign(merkleRoot, person.sigKey))

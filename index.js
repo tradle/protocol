@@ -25,6 +25,7 @@ const {
   AUTHOR,
   PREVHEADER,
   TIMESTAMP,
+  WITNESSES,
 } = constants
 
 const { HEADER_PROPS, LINK_HEADER_PROPS } = require('./lib/constants')
@@ -112,10 +113,6 @@ const merkleAndSign = (opts, cb) => {
 
   let { author, object } = opts
   if (object[SIG]) throw new Error('object is already signed')
-
-  if (author.permalink) {
-    object[AUTHOR] = author.permalink
-  }
 
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
@@ -226,13 +223,34 @@ const getSigKey = (opts) => {
     verify: typeforce.maybe(typeforce.Function)
   }, opts)
 
-  const object = opts.object
+  const { object, verify } = opts
   // necessary step to make sure key encoded
   // in signature is that key used to sign
-  const merkleRoot = computeMerkleRoot(getBody(object), getMerkleOpts(opts))
-  const body = getBody(object)
-  return utils.getSigKey(merkleRoot, object[SIG], opts.verify)
+  const merkleRoot = toMerkleRoot(object, opts)
+  return utils.getSigKey(merkleRoot, object[SIG], verify)
 }
+
+const verifyWitnesses = opts => {
+  const { object, verify } = opts
+  return getWitnesses(object).every(witnessed => {
+    return verifySig({ object: witnessed, verify })
+  })
+}
+
+const fromWitness = ({ object, witness }) => {
+  typeforce(types.witness, witness)
+  return clone(getBody(object), {
+    [SIG]: witness.s
+  })
+}
+
+const verifyWitness = ({ object, witness, verify }) => verifySig({
+  object: fromWitness({ object, witness }),
+  verify
+})
+
+const getWitnesses = object => (object[WITNESSES] || [])
+  .map(witness => fromWitness({ object, witness }))
 
 const verifySig = (opts) => {
   try {
@@ -602,6 +620,41 @@ const DEFAULT_MERKLE_OPTS = {
   }
 }
 
+const signAsWitness = (opts, cb) => {
+  const { object, author, permalink } = opts
+  ensureSigned(object)
+  if (!permalink) throw new Error(`expected string "permalink" of signer's identity`)
+
+  const unsigned = getBody(object)
+  merkleAndSign(clone(opts, { object: unsigned }), (err, result) => {
+    if (err) return cb(err)
+
+    const { sig } = result
+    const witnesses = object[WITNESSES] || []
+    witnesses.push(wrapWitnessSig({
+      author: permalink,
+      sig
+    }))
+
+    cb(null, clone(object, {
+      [WITNESSES]: witnesses
+    }))
+  })
+}
+
+const wrapWitnessSig = opts => {
+  typeforce({
+    author: typeforce.String,
+    sig: typeforce.String
+  }, opts)
+
+  const { author, sig } = opts
+  return {
+    a: author,
+    s: sig
+  }
+}
+
 module.exports = {
   DEFAULT_MERKLE_OPTS,
   types,
@@ -619,12 +672,17 @@ module.exports = {
   verifySealPubKey: verifySealPubKey,
   verifySealPrevPubKey: verifySealPrevPubKey,
   sign: merkleAndSign,
+  signAsWitness,
+  witness: signAsWitness,
   // message: createMessage,
   // validateMessage: validateMessage,
   // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
   verifySig: verifySig,
   verify: verifySig,
+  verifyWitnesses,
+  verifyWitness,
+  wrapWitnessSig,
   validateVersioning,
   prove,
   prover,
