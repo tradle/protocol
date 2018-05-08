@@ -27,7 +27,7 @@ const {
   TIMESTAMP,
 } = constants
 
-const { HEADER_PROPS } = require('./lib/constants')
+const { HEADER_PROPS, LINK_HEADER_PROPS } = require('./lib/constants')
 const ENC = 'hex'
 const sha256 = (data, enc) => {
   return crypto.createHash('sha256').update(data).digest(enc)
@@ -37,7 +37,7 @@ const concatSha256 = (a, b, enc) => {
   return crypto.createHash('sha256').update(a).update(b).digest(enc)
 }
 
-const getHeaderHash = object => hashHeader(getHeader(object))
+const getSealHeaderHash = object => hashHeader(getSealHeader(object))
 
 const getMerkleRoot = (tree) => {
   return tree.roots[0].hash
@@ -88,7 +88,7 @@ const createObject = (opts) => {
 
 const nextVersion = (object, link) => {
   link = link || getStringLink(object)
-  const headerHash = getHeaderHash(object)
+  const headerHash = getSealHeaderHash(object)
   object = utils.omit(object, HEADER_PROPS)
   object[PREVLINK] = link
   object[PERMALINK] = object[PERMALINK] || link
@@ -144,7 +144,7 @@ const calcSealPubKey = (opts) => {
   }, opts)
 
   let { basePubKey, object, headerHash } = opts
-  if (!headerHash) headerHash = hashHeader(getHeader(object))
+  if (!headerHash) headerHash = hashHeader(getSealHeader(object))
 
   return utils.publicKeyCombine([
     basePubKey,
@@ -270,7 +270,7 @@ const validateVersioning = (opts) => {
       throw new Error(`object.${PREVLINK} and "prev" don't match`)
     }
 
-    if (object[PREVHEADER] !== getHeaderHash(prev)) {
+    if (object[PREVHEADER] !== getSealHeaderHash(prev)) {
       throw new Error(`expected object.${PREVHEADER} to equal the header hash of "prev"`)
     }
   }
@@ -487,9 +487,9 @@ const ensureSigned = (obj) => {
   if (!obj[SIG]) throw new Error('object must be signed')
 }
 
-const getHeader = (obj) => {
+const getSealHeader = (obj, props=HEADER_PROPS) => {
   ensureSigned(obj)
-  const header = utils.pick(obj, HEADER_PROPS)
+  const header = utils.pick(obj, props)
   for (let p in header) {
     const val = header[p]
     if (Buffer.isBuffer(val)) {
@@ -500,11 +500,14 @@ const getHeader = (obj) => {
   return header
 }
 
+const getLinkHeader = obj => getSealHeader(obj, LINK_HEADER_PROPS)
+
 const getBody = (obj) => {
   return utils.omit(obj, HEADER_PROPS)
 }
 
-const getLink = (obj, enc) => {
+const getLink = (obj, enc=ENC) => {
+  ensureSigned(obj)
   if (Buffer.isBuffer(obj)) {
     if (obj.length === 32) {
       return enc ? obj.toString(enc) : obj
@@ -513,7 +516,7 @@ const getLink = (obj, enc) => {
     obj = JSON.parse(obj)
   }
 
-  return toMerkleRoot(obj).toString(ENC)
+  return hashHeader(getLinkHeader(obj, enc))
 }
 
 const getStringLink = getLink
@@ -543,7 +546,7 @@ const getLinks = wrapper => {
 }
 
 const pubKeyFromObject = (object) => {
-  return pubKeyFromHeader(getHeader(object))
+  return pubKeyFromHeader(getSealHeader(object))
 }
 
 const pubKeyFromHeader = (header, enc) => {
@@ -559,7 +562,7 @@ const pubKeyFromHeaderHash = (hash) => {
 }
 
 const prevPubKeyFromObject = (object) => {
-  return prevPubKeyFromHeaderHash(getHeader(object))
+  return prevPubKeyFromHeaderHash(getSealHeader(object))
 }
 
 const prevPubKeyFromHeaderHash = (headerHash, enc=ENC) => {
@@ -570,7 +573,7 @@ const iterateHeaderHash = (headerHash, enc=ENC) => {
   return headerHashFn(new Buffer(headerHash, enc), enc)
 }
 
-const getIteratedHeaderHash = object => iterateHeaderHash(getHeaderHash(object))
+const getIteratedHeaderHash = object => iterateHeaderHash(getSealHeaderHash(object))
 
 const toBuffer = (str, enc=ENC) => {
   return Buffer.isBuffer(str) ? str : new Buffer(str, enc)
@@ -626,8 +629,8 @@ module.exports = {
   links: getLinks,
   // prevSealLink: getSealedPrevLink,
   // prevLink: getPrevLink,
-  header: getHeader,
-  headerHash: getHeaderHash,
+  header: getSealHeader,
+  headerHash: getSealHeaderHash,
   iteratedHeaderHash: getIteratedHeaderHash,
   iterateHeaderHash,
   body: getBody,
