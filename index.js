@@ -48,7 +48,7 @@ const computeMerkleRoot = (obj, opts) => {
   return getMerkleRoot(tree)
 }
 
-const headerHashFn = obj => computeMerkleRoot(obj).toString(ENC)
+const headerHashFn = sha256
 
 const toMerkleRoot = (merkleRootOrObj, opts) => {
   return Buffer.isBuffer(merkleRootOrObj)
@@ -87,15 +87,21 @@ const createObject = (opts) => {
 }
 
 const nextVersion = (object, link) => {
-  link = link || getStringLink(object)
+  const scaffold = scaffoldNextVersion(object, { link })
+  const clean = utils.omit(object, HEADER_PROPS)
+  return extend(clean, scaffold)
+}
+
+const scaffoldNextVersion = (object, links={}) => {
+  const { link, permalink } = getLinks(extend({ object }, links))
   const headerHash = getSealHeaderHash(object)
-  object = utils.omit(object, HEADER_PROPS)
-  object[PREVLINK] = link
-  object[PERMALINK] = object[PERMALINK] || link
-  object[PREVHEADER] = headerHash
-  object[VERSION] = (object[VERSION] || 0) + 1
-  object[TIMESTAMP] = Date.now()
-  return object
+  return {
+    [PREVLINK]: link,
+    [PERMALINK]: permalink,
+    [PREVHEADER]: headerHash,
+    [VERSION]: (object[VERSION] || 0) + 1,
+    [TIMESTAMP]: Date.now()
+  }
 }
 
 const merkleAndSign = (opts, cb) => {
@@ -487,7 +493,7 @@ const ensureSigned = (obj) => {
   if (!obj[SIG]) throw new Error('object must be signed')
 }
 
-const getSealHeader = (obj, props=HEADER_PROPS) => {
+const getHeader = (obj, props) => {
   ensureSigned(obj)
   const header = utils.pick(obj, props)
   for (let p in header) {
@@ -500,7 +506,8 @@ const getSealHeader = (obj, props=HEADER_PROPS) => {
   return header
 }
 
-const getLinkHeader = obj => getSealHeader(obj, LINK_HEADER_PROPS)
+const getSealHeader = obj => getHeader(obj, HEADER_PROPS)
+const getLinkHeader = obj => getHeader(obj, LINK_HEADER_PROPS)
 
 const getBody = (obj) => {
   return utils.omit(obj, HEADER_PROPS)
@@ -606,6 +613,7 @@ module.exports = {
   object: createObject,
   parseObject,
   nextVersion,
+  scaffoldNextVersion,
   sealPubKey: calcSealPubKey,
   sealPrevPubKey: calcSealPrevPubKey,
   verifySealPubKey: verifySealPubKey,
