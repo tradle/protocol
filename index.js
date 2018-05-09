@@ -11,10 +11,21 @@ const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const flatTree = require('flat-tree')
 const constants = require('@tradle/constants')
+const Errors = require('./lib/errors')
+const { InvalidInput, InvalidVersion } = Errors
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
 const CURVE = 'secp256k1'
+const {
+  ensureUnsigned,
+  ensureSigned,
+  ensureTimestamp,
+  ensureType,
+  ensureTimestampIncreased,
+  ensureNonZeroVersion
+} = types
+
 const {
   SIG,
   SEQ,
@@ -74,10 +85,8 @@ const createObject = (opts) => {
     obj[PERMALINK] = getStringLink(opts.orig)
   }
 
-  if (!(obj[VERSION] > 0)) {
-    if (obj[PREVLINK] || obj[PERMALINK] || obj[PREVHEADER]) {
-      throw new Error('expected non-zero version')
-    }
+  if (obj[PREVLINK] || obj[PERMALINK] || obj[PREVHEADER]) {
+    ensureNonZeroVersion(obj)
   }
 
   if (!obj[TIMESTAMP]) {
@@ -112,7 +121,8 @@ const merkleAndSign = (opts, cb) => {
   }, opts)
 
   let { author, object } = opts
-  if (object[SIG]) throw new Error('object is already signed')
+
+  ensureUnsigned(object)
 
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
@@ -166,10 +176,10 @@ const calcSealPrevPubKey = (opts) => {
   if (object) {
     prevHeaderHash = object[PREVHEADER]
     if (!prevHeaderHash) {
-      throw new Error(`expected object.${PREVHEADER}`)
+      throw new InvalidInput(`expected object.${PREVHEADER}`)
     }
   } else if (!prevHeaderHash) {
-    throw new Error(`expected "object" or "prevHeaderHash"`)
+    throw new InvalidInput(`expected "object" or "prevHeaderHash"`)
   }
 
   return utils.publicKeyCombine([
@@ -185,8 +195,8 @@ const verifySealPubKey = (opts) => {
     sealPubKey: types.chainPubKey
   }, opts)
 
-  const object = opts.object
-  if (!object[SIG]) throw new Error('object must be signed')
+  const { object } = opts
+  ensureSigned(object)
 
   const expected = utils.publicKeyCombine([
     opts.basePubKey,
@@ -262,7 +272,7 @@ const verifySig = (opts) => {
 
 const ensurePrevHeader = object => {
   if (object[PREVLINK] && !object[PREVHEADER]) {
-    throw new Error(`expected object to have ${PREVHEADER}`)
+    throw new InvalidInput(`expected object to have ${PREVHEADER}`)
   }
 }
 
@@ -283,56 +293,46 @@ const validateVersioning = (opts) => {
     ensureTimestampIncreased(object, prev)
   } else {
     if (object[VERSION] && object[VERSION] !== 0) {
-      throw new Error(`expected object.${VERSION} to be 0`)
+      throw new InvalidVersion(`expected object.${VERSION} to be 0`)
     }
   }
 
   if (validatePrev) {
-    if (!object[PREVLINK]) throw new Error(`expected object.${PREVLINK}`)
-    if (!prev) throw new Error('expected "prev"')
+    if (!object[PREVLINK]) throw new InvalidInput(`expected object.${PREVLINK}`)
+    if (!prev) throw new InvalidInput('expected "prev"')
     if (object[PREVLINK] !== getStringLink(prev)) {
-      throw new Error(`object.${PREVLINK} and "prev" don't match`)
+      throw new InvalidInput(`object.${PREVLINK} and "prev" don't match`)
     }
 
     if (object[PREVHEADER] !== getSealHeaderHash(prev)) {
-      throw new Error(`expected object.${PREVHEADER} to equal the header hash of "prev"`)
+      throw new InvalidInput(`expected object.${PREVHEADER} to equal the header hash of "prev"`)
     }
   }
 
   if (validateOrig) {
-    if (!object[PERMALINK]) throw new Error(`expected object.${PERMALINK}`)
+    if (!object[PERMALINK]) throw new InvalidInput(`expected object.${PERMALINK}`)
 
     if (object[PERMALINK] && !orig) {
-      throw new Error('expected "orig"')
+      throw new InvalidInput('expected "orig"')
     }
 
     if (!object[PERMALINK] && orig) {
-      throw new Error(`expected object.${PERMALINK}`)
+      throw new InvalidInput(`expected object.${PERMALINK}`)
     }
 
     const expectedOrig = typeof orig === 'string' ? orig : getStringLink(orig)
     if (object[PERMALINK] !== expectedOrig) {
-      throw new Error(`object.${PERMALINK} and "orig" don't match`)
+      throw new InvalidInput(`object.${PERMALINK} and "orig" don't match`)
     }
 
     if (prev[PERMALINK] && prev[PERMALINK] !== object[PERMALINK]) {
-      throw new Error(`expected object.${PERMALINK} === prev.${PERMALINK}`)
+      throw new InvalidInput(`expected object.${PERMALINK} === prev.${PERMALINK}`)
     }
-  }
-}
-
-const ensureTimestampIncreased = (object, prev) => {
-  return object._time > prev._time
-}
-
-const ensureNonZeroVersion = object => {
-  if (!object[VERSION]) {
-    throw new Error(`expected non-zero version ${VERSION}`)
   }
 }
 
 const createMerkleTree = (obj, opts) => {
-  if (obj[SIG]) throw new Error('merkle tree should not include signature')
+  if (obj[SIG]) throw new InvalidInput('merkle tree should not include signature')
 
   const gen = merkleGenerator(getMerkleOpts(opts))
 
@@ -507,10 +507,6 @@ const toPrivateKey = (priv) => {
   return priv
 }
 
-const ensureSigned = (obj) => {
-  if (!obj[SIG]) throw new Error('object must be signed')
-}
-
 const getHeader = (obj, props) => {
   ensureSigned(obj)
   const header = utils.pick(obj, props)
@@ -564,7 +560,7 @@ const getLinks = wrapper => {
   if (prevLink) links.prevLink = prevLink
 
   if (!links.permalink && links.prevLink) {
-    throw new Error('expected "permalink"')
+    throw new InvalidInput('expected "permalink"')
   }
 
   return links
@@ -623,7 +619,7 @@ const DEFAULT_MERKLE_OPTS = {
 const signAsWitness = (opts, cb) => {
   const { object, author, permalink } = opts
   ensureSigned(object)
-  if (!permalink) throw new Error(`expected string "permalink" of signer's identity`)
+  if (!permalink) throw new InvalidInput(`expected string "permalink" of signer's identity`)
 
   const unsigned = getBody(object)
   merkleAndSign(clone(opts, { object: unsigned }), (err, result) => {
@@ -704,5 +700,6 @@ module.exports = {
   // unserializeMessage: unserializeMessage,
   genECKey: utils.genECKey,
   constants,
-  utils
+  utils,
+  Errors
 }
