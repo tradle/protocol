@@ -644,10 +644,21 @@ const wrapWitnessSig = opts => {
     sig: typeforce.String
   }, opts)
 
-  const { author, sig } = opts
   return {
-    a: author,
-    s: sig
+    a: opts.author,
+    s: opts.sig
+  }
+}
+
+const unwrapWitnessSig = opts => {
+  typeforce({
+    a: typeforce.String,
+    s: typeforce.String
+  }, opts)
+
+  return {
+    author: opts.a,
+    sig: opts.s
   }
 }
 
@@ -679,6 +690,7 @@ module.exports = {
   verifyWitnesses,
   verifyWitness,
   wrapWitnessSig,
+  unwrapWitnessSig,
   validateVersioning,
   prove,
   prover,
