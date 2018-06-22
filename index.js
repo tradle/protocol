@@ -126,6 +126,26 @@ const merkleAndSign = (opts, cb) => {
 
   const tree = createMerkleTree(getBody(object), getMerkleOpts(opts))
   const merkleRoot = getMerkleRoot(tree)
+  signMerkleRoot({ author, merkleRoot }, (err, sig) => {
+    if (err) return cb(err)
+
+    const signed = extend({ [SIG]: sig }, object)
+    cb(null, {
+      tree: tree,
+      merkleRoot: merkleRoot,
+      sig: sig,
+      object: signed
+    })
+  })
+}
+
+const signMerkleRoot = (opts, cb) => {
+  typeforce({
+    author: types.author,
+    merkleRoot: typeforce.Buffer
+  }, opts)
+
+  const { author, merkleRoot } = opts
   author.sign(merkleRoot, function (err, sig) {
     if (err) return cb(err)
 
@@ -135,14 +155,7 @@ const merkleAndSign = (opts, cb) => {
     })
 
     sig = utils.sigToString(encodedSig)
-    const signed = extend({ [SIG]: sig }, object)
-
-    cb(null, {
-      tree: tree,
-      merkleRoot: merkleRoot,
-      sig: sig,
-      object: signed
-    })
+    cb(null, sig)
   })
 }
 
@@ -679,6 +692,7 @@ module.exports = {
   verifySealPubKey: verifySealPubKey,
   verifySealPrevPubKey: verifySealPrevPubKey,
   sign: merkleAndSign,
+  signMerkleRoot,
   signAsWitness,
   witness: signAsWitness,
   // message: createMessage,

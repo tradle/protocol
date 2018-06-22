@@ -571,7 +571,7 @@ test('use different hash', function (t) {
       return a.data
     },
     parent: function (a, b) {
-      return a.hash + b.hash
+      return Buffer.concat([a.hash, b.hash])
     }
   }
 
