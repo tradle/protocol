@@ -3,7 +3,6 @@
 const crypto = require('crypto')
 const typeforce = require('typeforce')
 const test = require('tape')
-const clone = require('xtend')
 const secp256k1 = require('secp256k1')
 const protocol = require('./')
 const {
@@ -16,6 +15,7 @@ const {
   TIMESTAMP,
   PREVHEADER,
   WITNESSES,
+  PROTOCOL_VERSION,
 } = require('@tradle/constants')
 const types = require('./lib/types')
 // const proto = require('./lib/proto')
@@ -78,6 +78,7 @@ const utils = require('./lib/utils')
 test('primitives', function (t) {
   const v1 = protocol.object({
     object: {
+      [PROTOCOL_VERSION]: '4.0.0',
       [TYPE]: 'something',
       [AUTHOR]: 'bob',
       [TIMESTAMP]: 12345,
@@ -87,7 +88,7 @@ test('primitives', function (t) {
   })
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('68855cff2476f814ca73b49d14e469f8749f637c55f11ca9d3c3132dd1a91538','hex'))
+  t.same(v1MerkleRoot, new Buffer('6cfc94fcc58422bec23dfb8eb8ccd28b21109b888766f54f344372937c34028f','hex'))
   t.end()
 })
 
@@ -225,7 +226,7 @@ test('seals', function (t) {
       sealPubKey: sealPubKey
     }))
 
-    const rawV2 = clone(signed, {
+    const rawV2 = utils.extend({}, signed, {
       c: 3,
       [VERSION]: 1,
       [PREVLINK]: protocol.linkString(signed),
@@ -615,7 +616,7 @@ test('sign as witness', function (t) {
 
       t.ok(protocol.verifyWitnesses({ object: witnessed }))
       t.notOk(protocol.verifyWitnesses({
-        object: clone(object, {
+        object: utils.extend({}, object, {
           [WITNESSES]: witnessed[WITNESSES].concat({
             a: 'abc',
             s: 'def'
@@ -626,7 +627,46 @@ test('sign as witness', function (t) {
       t.end()
     })
   })
+})
 
+test('replace embedded media, pre-merklization', function (t) {
+  const imageData = new Buffer('TPnGl7V2hrahqa9ufLMQOJEWyB03eeDDWZHHd5sjcIk=', 'base64')
+  const dataUrl = 'data:image/jpeg;base64,' + imageData.toString('base64')
+  const v1 = protocol.object({
+    object: {
+      [PROTOCOL_VERSION]: '4.2.4',
+      [TYPE]: 'something',
+      [AUTHOR]: 'bob',
+      [TIMESTAMP]: 12345,
+      dataUrlProp: dataUrl,
+      nestedDataUrlProp: {
+        a: 1,
+        dataUrlProp: dataUrl,
+        keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah',
+      },
+      keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah',
+    }
+  })
+
+  t.same(protocol.preProcessForMerklization(v1), v1)
+  v1[PROTOCOL_VERSION] = '5.0.1'
+
+  const expectedDataUrlReplacement = protocol.DEFAULT_MERKLE_OPTS.leaf({ data: imageData }).toString('hex')
+  const expectedKeeperUriReplacement = 'deadbeef'
+  const preprocessed = protocol.preProcessForMerklization(v1)
+  t.same(preprocessed, {
+    ...v1,
+    dataUrlProp: expectedDataUrlReplacement,
+    nestedDataUrlProp: {
+      ...v1.nestedDataUrlProp,
+      dataUrlProp: expectedDataUrlReplacement,
+      keeperUriProp: expectedKeeperUriReplacement,
+    },
+    keeperUriProp: expectedKeeperUriReplacement,
+  })
+
+  t.same(preprocessed.dataUrlProp, expectedDataUrlReplacement)
+  t.end()
 })
 
 function rethrow (err) {
