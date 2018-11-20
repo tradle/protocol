@@ -370,17 +370,21 @@ const normalizeEmbeddedMedia = (obj, merkleOpts) => {
   const getHashHex = data => merkleOpts.leaf({ data }).toString('hex')
 
   utils.traverse(obj).forEach(function (value) {
-    if (typeof value === 'string') {
-      if (Embed.isKeeperUri(value)) {
-        this.update(Embed.parseKeeperUri(value).hash)
-      } else if (value.startsWith('data:')) {
-        try {
-          const buf = Embed.decodeDataURI(value)
-          this.update(getHashHex(buf))
-        } catch (err) {
-          // ignore
-          return
-        }
+    if (typeof value !== 'string') return
+
+    if (Embed.isKeeperUri(value)) {
+      const { hash } = Embed.parseKeeperUri(value)
+      this.update(hash)
+      return
+    }
+
+    if (value.startsWith('data:')) {
+      try {
+        const buf = Embed.decodeDataURI(value)
+        const hash = getHashHex(buf)
+        this.update(hash)
+      } catch (err) {
+        // ignore
       }
     }
   })
