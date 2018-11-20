@@ -2,8 +2,6 @@
 'use strict'
 
 const crypto = require('crypto')
-const clone = require('xtend')
-const extend = require('xtend/mutable')
 const typeforce = require('typeforce')
 const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
@@ -11,12 +9,12 @@ const merkleGenerator = require('merkle-tree-stream/generator')
 const secp256k1 = require('secp256k1')
 const flatTree = require('flat-tree')
 const constants = require('@tradle/constants')
+const Embed = require('@tradle/embed')
 const Errors = require('./lib/errors')
 const { InvalidInput, InvalidVersion } = Errors
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
-const CURVE = 'secp256k1'
 const {
   ensureUnsigned,
   ensureSigned,
@@ -37,10 +35,18 @@ const {
   PREVHEADER,
   TIMESTAMP,
   WITNESSES,
+  PROTOCOL_VERSION,
 } = constants
 
 const { HEADER_PROPS, LINK_HEADER_PROPS } = require('./lib/constants')
 const ENC = 'hex'
+const getMajorVersion = semver => parseInt(semver.split('.')[0])
+
+const CURRENT_PROTOCOL_VERSION = require('./package').version
+const CURRENT_MAJOR_VERSION = getMajorVersion(CURRENT_PROTOCOL_VERSION)
+const VERSION_BEFORE_PROTOCOL_VERSION_PROP = '4.0.0'
+const CURVE = 'secp256k1'
+
 const sha256 = (data, enc) => {
   return crypto.createHash('sha256').update(data).digest(enc)
 }
@@ -89,6 +95,10 @@ const createObject = (opts) => {
     ensureNonZeroVersion(obj)
   }
 
+  if (!obj[PROTOCOL_VERSION]) {
+    obj[PROTOCOL_VERSION] = CURRENT_PROTOCOL_VERSION
+  }
+
   if (!obj[TIMESTAMP]) {
     obj[TIMESTAMP] = Date.now()
   }
@@ -99,11 +109,11 @@ const createObject = (opts) => {
 const nextVersion = (object, link) => {
   const scaffold = scaffoldNextVersion(object, { link })
   const clean = utils.omit(object, HEADER_PROPS)
-  return extend(clean, scaffold)
+  return utils.extend(clean, scaffold)
 }
 
 const scaffoldNextVersion = (object, links={}) => {
-  const { link, permalink } = getLinks(extend({ object }, links))
+  const { link, permalink } = getLinks(utils.extend({ object }, links))
   const headerHash = getSealHeaderHash(object)
   return {
     [PREVLINK]: link,
@@ -129,7 +139,7 @@ const merkleAndSign = (opts, cb) => {
   signMerkleRoot({ author, merkleRoot }, (err, sig) => {
     if (err) return cb(err)
 
-    const signed = extend({ [SIG]: sig }, object)
+    const signed = utils.extend({ [SIG]: sig }, object)
     cb(null, {
       tree: tree,
       merkleRoot: merkleRoot,
@@ -262,7 +272,7 @@ const verifyWitnesses = opts => {
 
 const fromWitness = ({ object, witness }) => {
   typeforce(types.witness, witness)
-  return clone(getBody(object), {
+  return utils.extend(getBody(object), {
     [SIG]: witness.s
   })
 }
@@ -344,10 +354,48 @@ const validateVersioning = (opts) => {
   }
 }
 
+const preProcessForMerklization = (obj, merkleOpts) => {
+  const protocolVersion = obj[PROTOCOL_VERSION] || VERSION_BEFORE_PROTOCOL_VERSION_PROP
+  const major = parseInt(protocolVersion.split('.')[0])
+  if (major > 4) {
+    obj = utils.cloneDeep(obj)
+    return normalizeEmbeddedMedia(obj, merkleOpts)
+  }
+
+  return obj
+}
+
+const normalizeEmbeddedMedia = (obj, merkleOpts) => {
+  merkleOpts = getMerkleOpts(merkleOpts)
+  const getHashHex = data => merkleOpts.leaf({ data }).toString('hex')
+
+  utils.traverse(obj).forEach(function (value) {
+    if (typeof value === 'string') {
+      if (Embed.isKeeperUri(value)) {
+        this.update(Embed.parseKeeperUri(value).hash)
+      } else if (value.startsWith('data:')) {
+        try {
+          const buf = Embed.decodeDataURI(value)
+          debugger
+          this.update(getHashHex(buf))
+        } catch (err) {
+          // ignore
+          return
+        }
+      }
+    }
+  })
+
+  return obj
+}
+
 const createMerkleTree = (obj, opts) => {
   if (obj[SIG]) throw new InvalidInput('merkle tree should not include signature')
 
-  const gen = merkleGenerator(getMerkleOpts(opts))
+  const merkleOpts = getMerkleOpts(opts)
+  const gen = merkleGenerator(merkleOpts)
+
+  obj = preProcessForMerklization(obj, merkleOpts)
 
   // list with flat-tree indices
   const nodes = []
@@ -635,7 +683,7 @@ const signAsWitness = (opts, cb) => {
   if (!permalink) throw new InvalidInput(`expected string "permalink" of signer's identity`)
 
   const unsigned = getBody(object)
-  merkleAndSign(clone(opts, { object: unsigned }), (err, result) => {
+  merkleAndSign(utils.extend({}, opts, { object: unsigned }), (err, result) => {
     if (err) return cb(err)
 
     const { sig } = result
@@ -645,7 +693,7 @@ const signAsWitness = (opts, cb) => {
       sig
     }))
 
-    cb(null, clone(object, {
+    cb(null, utils.extend({}, object, {
       [WITNESSES]: witnesses
     }))
   })
@@ -683,6 +731,7 @@ module.exports = {
   secp256k1,
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
+  preProcessForMerklization,
   object: createObject,
   parseObject,
   nextVersion,
