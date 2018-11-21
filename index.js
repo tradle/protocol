@@ -779,5 +779,6 @@ module.exports = {
   genECKey: utils.genECKey,
   constants,
   utils,
-  Errors
+  Errors,
+  version: CURRENT_PROTOCOL_VERSION,
 }
