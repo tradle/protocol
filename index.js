@@ -42,7 +42,7 @@ const { HEADER_PROPS, LINK_HEADER_PROPS } = require('./lib/constants')
 const ENC = 'hex'
 const getSemverMajor = semver => parseInt(semver.split('.')[0])
 
-const CURRENT_PROTOCOL_VERSION = require('./package').version
+const CURRENT_PROTOCOL_VERSION = require('./package.json').version
 const CURRENT_MAJOR_VERSION = getSemverMajor(CURRENT_PROTOCOL_VERSION)
 const VERSION_BEFORE_PROTOCOL_VERSION_PROP = '4.0.0'
 const CURVE = 'secp256k1'
