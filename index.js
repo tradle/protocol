@@ -392,6 +392,27 @@ const normalizeEmbeddedMedia = (obj, merkleOpts) => {
   return obj
 }
 
+const merkleTreeFromHashes = (hashes, opts) => {
+  const merkleOpts = getMerkleOpts(opts)
+  const gen = merkleGenerator(merkleOpts)
+  const nodes = []
+  hashes.forEach(hash => {
+    if (!Buffer.isBuffer(hash)) {
+      throw new InvalidInput(`expected each hash to be a Buffer object`)
+    }
+  })
+
+  hashes.forEach(hash => gen.next(hash, nodes))
+  nodes.push.apply(nodes, gen.finalize())
+  const tree = {
+    nodes,
+    roots: gen.roots,
+  }
+
+  tree.root = getMerkleRoot(tree)
+  return tree
+}
+
 const createMerkleTree = (obj, opts) => {
   if (obj[SIG]) throw new InvalidInput('merkle tree should not include signature')
 
@@ -734,6 +755,7 @@ module.exports = {
   secp256k1,
   tree: createMerkleTree,
   merkleRoot: computeMerkleRoot,
+  merkleTreeFromHashes,
   preProcessForMerklization,
   object: createObject,
   parseObject,

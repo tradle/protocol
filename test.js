@@ -17,6 +17,7 @@ const {
   WITNESSES,
   PROTOCOL_VERSION,
 } = require('@tradle/constants')
+
 const types = require('./lib/types')
 // const proto = require('./lib/proto')
 const utils = require('./lib/utils')
@@ -89,6 +90,32 @@ test('primitives', function (t) {
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
   t.same(v1MerkleRoot, new Buffer('6cfc94fcc58422bec23dfb8eb8ccd28b21109b888766f54f344372937c34028f','hex'))
+
+  const hashes = [
+    '525d236f35b0cbc8bfec9f9d9e5476f26edaad09550d7d745709af613ab2b58a',
+    '69835a6705789952f77a107ca7679bd808794c01e9a4959d9af8a4241be6c0f0',
+    '54381466f9d03c55cab69ba565dce80f78d67d491190144e932ed900316964d5',
+    '976786dba0a124da9950604b1b762d4e7037db19e48a2f179e022756e280e5d4',
+  ].map(hash => new Buffer(hash, 'hex'))
+
+  const tree = protocol.merkleTreeFromHashes(hashes)
+
+  const { leaf, parent } = protocol.DEFAULT_MERKLE_OPTS
+  const hashLeaf = data => leaf({ data })
+  const hashParent = (a, b) => parent({ hash: a }, { hash: b })
+  t.same(tree.root, hashParent(
+    hashParent(
+      hashLeaf(hashes[0]),
+      hashLeaf(hashes[1])
+    ),
+    hashParent(
+      hashLeaf(hashes[2]),
+      hashLeaf(hashes[3])
+    )
+  ))
+
+  t.same(tree.root, new Buffer('1f8c6bf0d369605aa5f755a67f60c7e3ab567b7679eab2d766011bd8b1aaafbc','hex'))
+
   t.end()
 })
 
