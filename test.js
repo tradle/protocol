@@ -3,7 +3,6 @@
 const crypto = require('crypto')
 const typeforce = require('typeforce')
 const test = require('tape')
-const secp256k1 = require('secp256k1')
 const protocol = require('./')
 const {
   TYPE,
@@ -15,7 +14,7 @@ const {
   TIMESTAMP,
   PREVHEADER,
   WITNESSES,
-  PROTOCOL_VERSION,
+  PROTOCOL_VERSION
 } = require('@tradle/constants')
 
 const types = require('./lib/types')
@@ -84,19 +83,19 @@ test('primitives', function (t) {
       [AUTHOR]: 'bob',
       [TIMESTAMP]: 12345,
       a: 1,
-      b: 2,
+      b: 2
     }
   })
 
   const v1MerkleRoot = protocol.merkleRoot(v1)
-  t.same(v1MerkleRoot, new Buffer('6cfc94fcc58422bec23dfb8eb8ccd28b21109b888766f54f344372937c34028f','hex'))
+  t.same(v1MerkleRoot, Buffer.from('6cfc94fcc58422bec23dfb8eb8ccd28b21109b888766f54f344372937c34028f', 'hex'))
 
   const hashes = [
     '525d236f35b0cbc8bfec9f9d9e5476f26edaad09550d7d745709af613ab2b58a',
     '69835a6705789952f77a107ca7679bd808794c01e9a4959d9af8a4241be6c0f0',
     '54381466f9d03c55cab69ba565dce80f78d67d491190144e932ed900316964d5',
-    '976786dba0a124da9950604b1b762d4e7037db19e48a2f179e022756e280e5d4',
-  ].map(hash => new Buffer(hash, 'hex'))
+    '976786dba0a124da9950604b1b762d4e7037db19e48a2f179e022756e280e5d4'
+  ].map(hash => Buffer.from(hash, 'hex'))
 
   const tree = protocol.merkleTreeFromHashes(hashes)
 
@@ -114,7 +113,7 @@ test('primitives', function (t) {
     )
   ))
 
-  t.same(tree.root, new Buffer('1f8c6bf0d369605aa5f755a67f60c7e3ab567b7679eab2d766011bd8b1aaafbc','hex'))
+  t.same(tree.root, Buffer.from('1f8c6bf0d369605aa5f755a67f60c7e3ab567b7679eab2d766011bd8b1aaafbc', 'hex'))
 
   t.end()
 })
@@ -139,9 +138,8 @@ test('no undefined', function (t) {
 })
 
 test('sign/verify', function (t) {
-  const people = newPeople(2)
-  const alice = people[0]
-  const bob = people[1]
+  const people = newPeople(1)
+  const bob = people[0]
 
   const object = protocol.object({
     object: {
@@ -223,7 +221,7 @@ test('seals', function (t) {
 
   const v1 = protocol.object({ object: rawV1 })
   t.throws(function () {
-    let sealPubKey = protocol.sealPubKey({
+    protocol.sealPubKey({
       object: v1,
       basePubKey: alice.chainPubKey
     })
@@ -236,7 +234,7 @@ test('seals', function (t) {
     rethrow(err)
 
     const signed = result.object
-    let sealPubKey = protocol.sealPubKey({
+    const sealPubKey = protocol.sealPubKey({
       object: signed,
       basePubKey: alice.chainPubKey
     })
@@ -258,7 +256,7 @@ test('seals', function (t) {
       [VERSION]: 1,
       [PREVLINK]: protocol.linkString(signed),
       [PERMALINK]: protocol.linkString(signed),
-      [PREVHEADER]: protocol.headerHash(signed),
+      [PREVHEADER]: protocol.headerHash(signed)
     })
 
     delete rawV2[SIG]
@@ -309,7 +307,7 @@ test('validateVersioning', function (t) {
       a: 1,
       b: 2,
       [TYPE]: 'something',
-      [AUTHOR]: bob.link,
+      [AUTHOR]: bob.link
     }
   })
 
@@ -361,7 +359,7 @@ test('validateVersioning', function (t) {
           a: 2,
           b: 2,
           [PREVLINK]: crypto.randomBytes(32),
-          [PREVHEADER]: crypto.randomBytes(32),
+          [PREVHEADER]: crypto.randomBytes(32)
         },
         prev: signed
       })
@@ -374,7 +372,7 @@ test('validateVersioning', function (t) {
           a: 2,
           b: 2,
           [PREVLINK]: protocol.linkString(signed),
-          [PREVHEADER]: crypto.randomBytes(32),
+          [PREVHEADER]: crypto.randomBytes(32)
         },
         prev: signed
       })
@@ -413,10 +411,8 @@ test('validateVersioning', function (t) {
 })
 
 test('versioning', function (t) {
-  const people = newPeople(3)
-  const alice = people[0]
-  const bob = people[1]
-  const carol = people[2]
+  const people = newPeople(1)
+  const bob = people[0]
   const v1 = protocol.object({
     object: {
       a: 1,
@@ -447,7 +443,7 @@ test('versioning', function (t) {
         [VERSION]: 1,
         [PREVHEADER]: protocol.headerHash(signedV1),
         [PREVLINK]: protocol.linkString(signedV1),
-        [PERMALINK]: protocol.linkString(signedV1),
+        [PERMALINK]: protocol.linkString(signedV1)
       },
       prev: signedV1,
       orig: signedV1
@@ -498,7 +494,6 @@ test('versioning', function (t) {
       t.end()
     })
   })
-
 })
 
 test('prove, verify', function (t) {
@@ -580,9 +575,8 @@ test('prove with builder, verify', function (t) {
 })
 
 test('use different hash', function (t) {
-  const people = newPeople(2)
-  const alice = people[0]
-  const bob = people[1]
+  const people = newPeople(1)
+  const bob = people[0]
   const object = protocol.object({
     object: {
       [TYPE]: 'blah',
@@ -605,7 +599,7 @@ test('use different hash', function (t) {
 
   protocol.sign({
     object,
-    author: bob.author,
+    author: bob.author
   }, function (err, result) {
     rethrow(err)
 
@@ -623,13 +617,13 @@ test('sign as witness', function (t) {
       [TYPE]: 'blah',
       [AUTHOR]: alice.link,
       [VERSION]: 0,
-      a: 1,
+      a: 1
     }
   })
 
   protocol.sign({
     object,
-    author: alice.author,
+    author: alice.author
   }, function (err, result) {
     rethrow(err)
 
@@ -657,7 +651,7 @@ test('sign as witness', function (t) {
 })
 
 test('replace embedded media, pre-merklization', function (t) {
-  const imageData = new Buffer('TPnGl7V2hrahqa9ufLMQOJEWyB03eeDDWZHHd5sjcIk=', 'base64')
+  const imageData = Buffer.from('TPnGl7V2hrahqa9ufLMQOJEWyB03eeDDWZHHd5sjcIk=', 'base64')
   const dataUrl = 'data:image/jpeg;base64,' + imageData.toString('base64')
   const v1 = protocol.object({
     object: {
@@ -669,9 +663,9 @@ test('replace embedded media, pre-merklization', function (t) {
       nestedDataUrlProp: {
         a: 1,
         dataUrlProp: dataUrl,
-        keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah',
+        keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah'
       },
-      keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah',
+      keeperUriProp: 'tradle-keeper://deadbeef?blah=otherblah'
     }
   })
 
@@ -687,9 +681,9 @@ test('replace embedded media, pre-merklization', function (t) {
     nestedDataUrlProp: {
       ...v1.nestedDataUrlProp,
       dataUrlProp: expectedDataUrlReplacement,
-      keeperUriProp: expectedKeeperUriReplacement,
+      keeperUriProp: expectedKeeperUriReplacement
     },
-    keeperUriProp: expectedKeeperUriReplacement,
+    keeperUriProp: expectedKeeperUriReplacement
   })
 
   t.same(preprocessed.dataUrlProp, expectedDataUrlReplacement)
@@ -701,7 +695,7 @@ function rethrow (err) {
 }
 
 function newPerson () {
-  var person = {
+  const person = {
     chainKey: protocol.genECKey(),
     sigKey: protocol.genECKey('p256'),
     link: crypto.randomBytes(32).toString('hex')
@@ -729,7 +723,7 @@ function newPerson () {
 
 function newPeople (n) {
   const people = []
-  for (var i = 0; i < n; i++) {
+  for (let i = 0; i < n; i++) {
     people.push(newPerson())
   }
 

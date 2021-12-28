@@ -18,24 +18,19 @@ const types = require('./lib/types')
 const {
   ensureUnsigned,
   ensureSigned,
-  ensureTimestamp,
-  ensureType,
   ensureTimestampIncreased,
   ensureNonZeroVersion
 } = types
 
 const {
   SIG,
-  SEQ,
-  TYPE,
   PREVLINK,
   PERMALINK,
   VERSION,
-  AUTHOR,
   PREVHEADER,
   TIMESTAMP,
   WITNESSES,
-  PROTOCOL_VERSION,
+  PROTOCOL_VERSION
 } = constants
 
 const { HEADER_PROPS, LINK_HEADER_PROPS } = require('./lib/constants')
@@ -43,7 +38,6 @@ const ENC = 'hex'
 const getSemverMajor = semver => parseInt(semver.split('.')[0])
 
 const CURRENT_PROTOCOL_VERSION = require('./package.json').version
-const CURRENT_MAJOR_VERSION = getSemverMajor(CURRENT_PROTOCOL_VERSION)
 const VERSION_BEFORE_PROTOCOL_VERSION_PROP = '4.0.0'
 const CURVE = 'secp256k1'
 
@@ -112,7 +106,7 @@ const nextVersion = (object, link) => {
   return utils.extend(clean, scaffold)
 }
 
-const scaffoldNextVersion = (object, links={}) => {
+const scaffoldNextVersion = (object, links = {}) => {
   const { link, permalink } = getLinks(utils.extend({ object }, links))
   const headerHash = getSealHeaderHash(object)
   return {
@@ -130,7 +124,7 @@ const merkleAndSign = (opts, cb) => {
     object: types.signObjectInput
   }, opts)
 
-  let { author, object } = opts
+  const { author, object } = opts
 
   ensureUnsigned(object)
 
@@ -202,7 +196,7 @@ const calcSealPrevPubKey = (opts) => {
       throw new InvalidInput(`expected object.${PREVHEADER}`)
     }
   } else if (!prevHeaderHash) {
-    throw new InvalidInput(`expected "object" or "prevHeaderHash"`)
+    throw new InvalidInput('expected "object" or "prevHeaderHash"')
   }
 
   return utils.publicKeyCombine([
@@ -398,7 +392,7 @@ const merkleTreeFromHashes = (hashes, opts) => {
   const nodes = []
   hashes.forEach(hash => {
     if (!Buffer.isBuffer(hash)) {
-      throw new InvalidInput(`expected each hash to be a Buffer object`)
+      throw new InvalidInput('expected each hash to be a Buffer object')
     }
   })
 
@@ -406,7 +400,7 @@ const merkleTreeFromHashes = (hashes, opts) => {
   nodes.push.apply(nodes, gen.finalize())
   const tree = {
     nodes,
-    roots: gen.roots,
+    roots: gen.roots
   }
 
   tree.root = getMerkleRoot(tree)
@@ -479,7 +473,7 @@ const prove = (opts) => {
 
   const prover = merkleProofs.proofGenerator(opts.nodes)
   const leaves = opts.leaves
-  for (var i = 0; i < leaves.length; i++) {
+  for (let i = 0; i < leaves.length; i++) {
     prover.add(leaves[i])
   }
 
@@ -537,14 +531,6 @@ const getLeaves = (nodes) => {
   })
 }
 
-const find = (arr, match) => {
-  if (arr.find) return arr.find(match)
-
-  for (let i = 0; i < arr.length; i++) {
-    if (match(arr[i], i)) return arr[i]
-  }
-}
-
 const getKeys = (obj) => {
   return Object.keys(obj).sort(alphabetical)
 }
@@ -563,22 +549,22 @@ const getIndices = (obj, keys) => {
   return indices
 }
 
-const getKeyInputData = (objInfo) => {
-  typeforce({
-    sig: typeforce.Buffer,
-  }, objInfo)
+// Memo: const getKeyInputData = (objInfo) => {
+// Memo:   typeforce({
+// Memo:     sig: typeforce.Buffer
+// Memo:   }, objInfo)
+// Memo:
+// Memo:   return objInfo.sig
+// Memo: }
 
-  return objInfo.sig
-}
-
-// function getSigData (sigInput) {
-//   typeforce(types.sigInput, sigInput)
-
-//   return sha256(Buffer.concat([
-//     sigInput.merkleRoot,
-//     new Buffer(sigInput.recipient, 'hex')
-//   ]))
-// }
+// Memo: function getSigData (sigInput) {
+// Memo:   typeforce(types.sigInput, sigInput)
+// Memo:
+// Memo:   return sha256(Buffer.concat([
+// Memo:     sigInput.merkleRoot,
+// Memo:     new Buffer(sigInput.recipient, 'hex')
+// Memo:   ]))
+// Memo: }
 
 const toPrivateKey = (priv) => {
   if (typeof priv === 'string') priv = toBuffer(priv)
@@ -595,7 +581,7 @@ const toPrivateKey = (priv) => {
 const getHeader = (obj, props) => {
   ensureSigned(obj)
   const header = utils.pick(obj, props)
-  for (let p in header) {
+  for (const p in header) {
     const val = header[p]
     if (Buffer.isBuffer(val)) {
       header[p] = val.toString('base64')
@@ -612,7 +598,7 @@ const getBody = (obj) => {
   return utils.omit(obj, HEADER_PROPS)
 }
 
-const getLink = (obj, enc=ENC) => {
+const getLink = (obj, enc = ENC) => {
   ensureSigned(obj)
   if (Buffer.isBuffer(obj)) {
     if (obj.length === 32) {
@@ -659,7 +645,7 @@ const pubKeyFromHeader = (header, enc) => {
   return pubKeyFromHeaderHash(hashHeader(header, enc))
 }
 
-const hashHeader = (header, enc=ENC) => {
+const hashHeader = (header, enc = ENC) => {
   return headerHashFn(stringify(header), enc)
 }
 
@@ -667,22 +653,22 @@ const pubKeyFromHeaderHash = (hash) => {
   return privToPub(toPrivateKey(hash))
 }
 
-const prevPubKeyFromObject = (object) => {
-  return prevPubKeyFromHeaderHash(getSealHeader(object))
-}
+// Memo: const prevPubKeyFromObject = (object) => {
+// Memo:   return prevPubKeyFromHeaderHash(getSealHeader(object))
+// Memo: }
 
-const prevPubKeyFromHeaderHash = (headerHash, enc=ENC) => {
+const prevPubKeyFromHeaderHash = (headerHash, enc = ENC) => {
   return pubKeyFromHeaderHash(iterateHeaderHash(headerHash, enc), enc)
 }
 
-const iterateHeaderHash = (headerHash, enc=ENC) => {
-  return headerHashFn(new Buffer(headerHash, enc), enc)
+const iterateHeaderHash = (headerHash, enc = ENC) => {
+  return headerHashFn(Buffer.from(headerHash, enc), enc)
 }
 
 const getIteratedHeaderHash = object => iterateHeaderHash(getSealHeaderHash(object))
 
-const toBuffer = (str, enc=ENC) => {
-  return Buffer.isBuffer(str) ? str : new Buffer(str, enc)
+const toBuffer = (str, enc = ENC) => {
+  return Buffer.isBuffer(str) ? str : Buffer.from(str, enc)
 }
 
 const privToPub = (priv) => {
@@ -702,9 +688,9 @@ const DEFAULT_MERKLE_OPTS = {
 }
 
 const signAsWitness = (opts, cb) => {
-  const { object, author, permalink } = opts
+  const { object, permalink } = opts
   ensureSigned(object)
-  if (!permalink) throw new InvalidInput(`expected string "permalink" of signer's identity`)
+  if (!permalink) throw new InvalidInput('expected string "permalink" of signer\'s identity')
 
   const unsigned = getBody(object)
   merkleAndSign(utils.extend({}, opts, { object: unsigned }), (err, result) => {
@@ -802,5 +788,5 @@ module.exports = {
   constants,
   utils,
   Errors,
-  version: CURRENT_PROTOCOL_VERSION,
+  version: CURRENT_PROTOCOL_VERSION
 }

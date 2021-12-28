@@ -29,7 +29,6 @@ protocol.send({
   })
 })
 
-
 const msg = {
   a: 1,
   b: 2,
@@ -37,8 +36,8 @@ const msg = {
 }
 
 const proof = protocol.prover({
-    message: msg
-  })
+  message: msg
+})
   .add({
     property: 'a',
     key: true
