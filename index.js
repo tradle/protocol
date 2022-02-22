@@ -2,7 +2,7 @@
 'use strict'
 
 const crypto = require('crypto')
-const typeforce = require('typeforce')
+const typeforce = require('@tradle/typeforce')
 const stringify = require('json-stable-stringify')
 const merkleProofs = require('merkle-proofs')
 const merkleGenerator = require('merkle-tree-stream/generator')
@@ -15,6 +15,7 @@ const { InvalidInput, InvalidVersion } = Errors
 const proto = require('./lib/proto')
 const utils = require('./lib/utils')
 const types = require('./lib/types')
+const assert = typeforce.assert
 const {
   ensureUnsigned,
   ensureSigned,
@@ -69,7 +70,7 @@ const toMerkleRoot = (merkleRootOrObj, opts) => {
 }
 
 const createObject = (opts) => {
-  typeforce({
+  assert({
     object: types.createObjectInput,
     prev: typeforce.maybe(types.signedObject),
     orig: typeforce.maybe(types.merkleRootOrObj)
@@ -119,7 +120,7 @@ const scaffoldNextVersion = (object, links = {}) => {
 }
 
 const merkleAndSign = (opts, cb) => {
-  typeforce({
+  assert({
     author: types.author,
     object: types.signObjectInput
   }, opts)
@@ -144,7 +145,7 @@ const merkleAndSign = (opts, cb) => {
 }
 
 const signMerkleRoot = (opts, cb) => {
-  typeforce({
+  assert({
     author: types.author,
     merkleRoot: typeforce.Buffer
   }, opts)
@@ -167,7 +168,7 @@ const signMerkleRoot = (opts, cb) => {
  * calculate a public key that seals `link` based on `basePubKey`
  */
 const calcSealPubKey = (opts) => {
-  typeforce({
+  assert({
     basePubKey: types.chainPubKey,
     object: typeforce.maybe(typeforce.Object),
     headerHash: typeforce.maybe(typeforce.String)
@@ -183,7 +184,7 @@ const calcSealPubKey = (opts) => {
 }
 
 const calcSealPrevPubKey = (opts) => {
-  typeforce({
+  assert({
     basePubKey: types.chainPubKey,
     object: typeforce.maybe(typeforce.Object),
     prevHeaderHash: typeforce.maybe(typeforce.String)
@@ -206,7 +207,7 @@ const calcSealPrevPubKey = (opts) => {
 }
 
 const verifySealPubKey = (opts) => {
-  typeforce({
+  assert({
     object: typeforce.Object,
     basePubKey: types.chainPubKey,
     sealPubKey: types.chainPubKey
@@ -224,7 +225,7 @@ const verifySealPubKey = (opts) => {
 }
 
 const verifySealPrevPubKey = (opts) => {
-  typeforce({
+  assert({
     sealPrevPubKey: types.chainPubKey
   }, opts)
 
@@ -245,7 +246,7 @@ const parseObject = (opts) => {
 }
 
 const getSigKey = (opts) => {
-  typeforce({
+  assert({
     object: typeforce.Object,
     verify: typeforce.maybe(typeforce.Function)
   }, opts)
@@ -265,7 +266,7 @@ const verifyWitnesses = opts => {
 }
 
 const fromWitness = ({ object, witness }) => {
-  typeforce(types.witness, witness)
+  assert(types.witness, witness)
   return utils.extend(getBody(object), {
     [SIG]: witness.s
   })
@@ -437,7 +438,7 @@ const prover = (object, opts) => {
   const leaves = []
   const builder = {
     add: function (opts) {
-      typeforce({
+      assert({
         property: typeforce.String,
         key: '?Boolean',
         value: '?Boolean'
@@ -466,7 +467,7 @@ const prover = (object, opts) => {
 
 const prove = (opts) => {
   // return nodes needed to prove leaves at leafIndices are part of the tree
-  typeforce({
+  assert({
     nodes: typeforce.arrayOf(types.merkleNode),
     leaves: typeforce.arrayOf(types.merkleLeaf)
   }, opts)
@@ -481,7 +482,7 @@ const prove = (opts) => {
 }
 
 const verifyProof = (opts, cb) => {
-  typeforce({
+  assert({
     proof: typeforce.arrayOf(types.merkleNode),
     node: types.merkleNode
   }, opts)
@@ -550,7 +551,7 @@ const getIndices = (obj, keys) => {
 }
 
 // Memo: const getKeyInputData = (objInfo) => {
-// Memo:   typeforce({
+// Memo:   assert({
 // Memo:     sig: typeforce.Buffer
 // Memo:   }, objInfo)
 // Memo:
@@ -558,7 +559,7 @@ const getIndices = (obj, keys) => {
 // Memo: }
 
 // Memo: function getSigData (sigInput) {
-// Memo:   typeforce(types.sigInput, sigInput)
+// Memo:   assert(types.sigInput, sigInput)
 // Memo:
 // Memo:   return sha256(Buffer.concat([
 // Memo:     sigInput.merkleRoot,
@@ -613,7 +614,7 @@ const getLink = (obj, enc = ENC) => {
 
 const getStringLink = getLink
 const getLinks = wrapper => {
-  typeforce({
+  assert({
     object: typeforce.maybe(typeforce.Object),
     permalink: typeforce.maybe(typeforce.String),
     link: typeforce.maybe(typeforce.String),
@@ -710,7 +711,7 @@ const signAsWitness = (opts, cb) => {
 }
 
 const wrapWitnessSig = opts => {
-  typeforce({
+  assert({
     author: typeforce.String,
     sig: typeforce.String
   }, opts)
@@ -722,7 +723,7 @@ const wrapWitnessSig = opts => {
 }
 
 const unwrapWitnessSig = opts => {
-  typeforce({
+  assert({
     a: typeforce.String,
     s: typeforce.String
   }, opts)

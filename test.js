@@ -1,7 +1,8 @@
 'use strict'
 
 const crypto = require('crypto')
-const typeforce = require('typeforce')
+const typeforce = require('@tradle/typeforce')
+const assert = typeforce.assert
 const test = require('tape')
 const protocol = require('./')
 const {
@@ -126,11 +127,11 @@ test('no undefined', function (t) {
 
   bad.forEach(obj => {
     t.throws(function () {
-      typeforce(types.object(obj))
+      assert(types.object(obj))
     })
 
     t.throws(function () {
-      typeforce(types.rawObject(obj))
+      assert(types.rawObject(obj))
     })
   })
 
@@ -191,7 +192,7 @@ test('sign/verify', function (t) {
 
 //       const message = result.object
 //       t.doesNotThrow(function () {
-//         typeforce({
+//         assert({
 //           recipientPubKey: types.ecPubKey,
 //           object: typeforce.Object,
 //           [SIG]: typeforce.String
