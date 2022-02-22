@@ -19,62 +19,7 @@ const {
 } = require('@tradle/constants')
 
 const types = require('./lib/types')
-// const proto = require('./lib/proto')
 const utils = require('./lib/utils')
-// const keys = require('./fixtures.json').ecKeys.map(function (key) {
-//   return new Buffer(key, 'hex')
-// })
-
-// test('encode, decode', function (t) {
-//   var obj = {
-//     a: 1,
-//     b: 2
-//   }
-
-//   // bob sends
-//   const toKey = secp256k1.publicKeyCreate(alice.chainKey)
-//   protocol.send({
-//     toKey: toKey,
-//     sigKey: bob.sigKey,
-//     object: obj
-//   }, function (err, sendRes) {
-//     rethrow(err)
-
-//     const header = sendRes.header
-//     const serialized = proto.serialize({
-//       toKey: toKey,
-//       header: sendRes.header,
-//       object: sendRes.object
-//     })
-
-//     const unserialized = proto.unserialize(serialized)
-//     t.same(unserialized, {
-//       headers: [
-//         clone(header, { txId: null })
-//       ],
-//       object: sendRes.object
-//     })
-
-//     // t.same(unserialized, {
-//     //   header: [
-//     //     {
-//     //       sig: header.sig,
-//     //       sigInput: {
-//     //         merkleRoot: header.sigInput.merkleRoot,
-//     //         recipient: {
-//     //           identifier: toKey,
-//     //           identifierType: proto.IdentifierType.PUBKEY
-//     //         }
-//     //       }
-//     //     }
-//     //   ],
-//     //   object: sendRes.object
-//     // })
-
-//     t.end()
-//   })
-
-// })
 
 test('primitives', function (t) {
   const v1 = protocol.object({
@@ -162,49 +107,6 @@ test('sign/verify', function (t) {
   })
 })
 
-// test('bob sends, alice receives, carol audits', function (t) {
-//   var obj = {
-//     [TYPE]: 'blah',
-//     a: 1,
-//     b: 2
-//   }
-
-//   const people = newPeople(3)
-//   const alice = people[0]
-//   const bob = people[1]
-//   const carol = people[2]
-
-//   protocol.sign({
-//     object: obj,
-//     author: bob.author
-//   }, function (err, result) {
-//     rethrow(err)
-
-//     // bob sends
-//     protocol.message({
-//       author: bob.author,
-//       body: {
-//         recipientPubKey: alice.sigPubKey,
-//         object: result.object
-//       }
-//     }, function (err, result) {
-//       rethrow(err)
-
-//       const message = result.object
-//       t.doesNotThrow(function () {
-//         assert({
-//           recipientPubKey: types.ecPubKey,
-//           object: typeforce.Object,
-//           [SIG]: typeforce.String
-//         }, message)
-//       })
-
-//       t.doesNotThrow(() => protocol.validateMessage({ object: message }))
-//       t.end()
-//     })
-//   })
-// })
-
 test('seals', function (t) {
   const people = newPeople(3)
   const alice = people[0]
@@ -213,7 +115,6 @@ test('seals', function (t) {
     a: 1,
     b: 2,
     c: {
-      // d: undefined,
       e: null
     },
     [TYPE]: 'something',
@@ -485,12 +386,6 @@ test('versioning', function (t) {
           orig: signedV1
         })
       })
-
-      // const v3 = protocol.object({
-      //   object: v2,
-      //   prev: v1,
-      //   orig: v1
-      // })
 
       t.end()
     })

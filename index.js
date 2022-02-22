@@ -494,18 +494,6 @@ const verifyProof = (opts, cb) => {
   return verify(opts.node)
 }
 
-// function importPriv (key, curve) {
-//   return typeof key === 'string'
-//     ? curve.keyFromPrivate(key)
-//     : key
-// }
-
-// function importPub (key, curve) {
-//   return typeof key === 'string'
-//     ? curve.keyFromPublic(key)
-//     : key
-// }
-
 const alphabetical = (a, b) => {
   const al = a.toLowerCase()
   const bl = b.toLowerCase()
@@ -549,23 +537,6 @@ const getIndices = (obj, keys) => {
 
   return indices
 }
-
-// Memo: const getKeyInputData = (objInfo) => {
-// Memo:   assert({
-// Memo:     sig: typeforce.Buffer
-// Memo:   }, objInfo)
-// Memo:
-// Memo:   return objInfo.sig
-// Memo: }
-
-// Memo: function getSigData (sigInput) {
-// Memo:   assert(types.sigInput, sigInput)
-// Memo:
-// Memo:   return sha256(Buffer.concat([
-// Memo:     sigInput.merkleRoot,
-// Memo:     new Buffer(sigInput.recipient, 'hex')
-// Memo:   ]))
-// Memo: }
 
 const toPrivateKey = (priv) => {
   if (typeof priv === 'string') priv = toBuffer(priv)
@@ -653,10 +624,6 @@ const hashHeader = (header, enc = ENC) => {
 const pubKeyFromHeaderHash = (hash) => {
   return privToPub(toPrivateKey(hash))
 }
-
-// Memo: const prevPubKeyFromObject = (object) => {
-// Memo:   return prevPubKeyFromHeaderHash(getSealHeader(object))
-// Memo: }
 
 const prevPubKeyFromHeaderHash = (headerHash, enc = ENC) => {
   return pubKeyFromHeaderHash(iterateHeaderHash(headerHash, enc), enc)
@@ -756,9 +723,6 @@ module.exports = {
   signMerkleRoot,
   signAsWitness,
   witness: signAsWitness,
-  // message: createMessage,
-  // validateMessage: validateMessage,
-  // getSigPubKey: getSigPubKey,
   sigPubKey: getSigKey,
   verifySig: verifySig,
   verify: verifySig,
@@ -776,15 +740,11 @@ module.exports = {
   linkString: getStringLink,
   link: getLink,
   links: getLinks,
-  // prevSealLink: getSealedPrevLink,
-  // prevLink: getPrevLink,
   header: getSealHeader,
   headerHash: getSealHeaderHash,
   iteratedHeaderHash: getIteratedHeaderHash,
   iterateHeaderHash,
   body: getBody,
-  // serializeMessage: serializeMessage,
-  // unserializeMessage: unserializeMessage,
   genECKey: utils.genECKey,
   constants,
   utils,
