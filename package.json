@@ -35,5 +35,18 @@
   },
   "peerDependencies": {
     "lodash": ">=4.17"
-  }
+  },
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tradle/protocol.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/tradle/protocol/issues"
+  },
+  "homepage": "https://github.com/tradle/protocol#readme"
 }
