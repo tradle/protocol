@@ -46,7 +46,7 @@
     }
   },
   "author": "Mark Vayngrib <mark@tradle.io> (http://github.com/mvayngrib)",
-  "license": "GPLv3",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@tradle/constants": "github:tradle/constants#type-interfaces",
     "@tradle/embed": "^1.4.2",
