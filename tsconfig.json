@@ -1,0 +1,23 @@
+{
+  "include": [
+    "index.ts",
+    "lib/*.ts",
+    "test/*.ts"
+  ],
+  "exclude": [
+    "cjs"
+  ],
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true,
+    "target": "ES2020",
+    "module": "CommonJS",
+    "declaration": true,
+    "noUnusedLocals": true,
+    "sourceMap": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedParameters": true,
+    "resolveJsonModule": true,
+    "outDir": "cjs"
+  }
+}

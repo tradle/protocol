@@ -3,9 +3,9 @@ const assert = require('assert')
 const secp256k1 = require('elliptic').ec('secp256k1')
 const alice = secp256k1.keyFromPrivate('a243732f222cae6f8fc85c302ac6e704799a6b95660fe53b0718a2e84218a718', 'hex')
 const bob = secp256k1.keyFromPrivate('06e5db45f217a0bc399a4fd1836ca3bcde392a05b1d67e77d681e490a1039eef', 'hex')
-const protocol = require('./')
+const protocol = require('./src')
 
-protocol.send({
+protocol.sign({
   pub: bob.getPublic(),
   sign: alice.sign,
   message: {
